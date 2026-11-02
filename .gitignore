@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+pandrop-backend/static/jobs/
+pandrop-backend/tests/sample_room.mp4
+*.log

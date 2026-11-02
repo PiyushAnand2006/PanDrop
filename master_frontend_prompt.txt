@@ -1,0 +1,73 @@
+# MASTER PROMPT: Build the Complete PanDrop Frontend (React + TypeScript + Tailwind + Framer Motion)
+
+## ROLE & OBJECTIVE
+You are an Elite Staff Frontend Engineer and UI/UX Designer building the frontend for **PanDrop ("Point, Talk, Sell")** for the Meta Global AI Developer Hackathon.
+
+Your goal is to build a breathtaking, high-craft, dark-mode-first **AI Video-to-Showcase E-Commerce Studio** web application in `pandrop-frontend/` that connects directly to our existing FastAPI backend (`http://localhost:8000`).
+
+## 🚨 STRICT BOUNDARY RULE: FRONTEND ONLY
+- **DO NOT** modify or touch any Python backend files.
+- Build the entire frontend inside `pandrop-frontend/` using **Vite + React 18 + TypeScript + Tailwind CSS + Framer Motion + Lucide React**.
+- Ensure the app works both when connected to the live FastAPI backend (`http://localhost:8000`) AND includes a built-in **"Load Instant Demo Showcase"** fallback preset so judges or developers can test the full interactive UI immediately even before uploading a video.
+
+---
+
+## 1. DESIGN DIRECTION & AESTHETIC
+- **Theme:** High-craft Dark UI ("Linear meets Apple Vision Pro meets Shopify Studio").
+- **Color Palette:**
+  - Background Primary: `#090A0F` (Deep Obsidian)
+  - Background Elevated / Card Surface: `#12141D` with `1px solid rgba(255,255,255,0.08)` borders and subtle glassmorphism (`backdrop-blur-xl`).
+  - Primary Accent (Meta AI / SAM 3.1 HUD): Electric Cyan `#00F0FF` to Royal Blue `#0066FF`.
+  - Price Tag Accent: Vibrant Amber-Orange Gradient (`linear-gradient(135deg, #FF6B35 0%, #F7C948 100%)`) with warm glow shadow.
+  - Verified Condition Badge: Emerald `#10B981`.
+- **Typography:** `Inter` or `Plus Jakarta Sans` for UI; `JetBrains Mono` for timestamps, bounding boxes, prices, and model telemetry.
+
+---
+
+## 2. EXACT BACKEND API CONTRACT (`src/types/pandrop.ts`)
+The FastAPI backend runs at `const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000"`.
+All relative asset paths returned by the backend (e.g. `"/static/jobs/..."`) MUST be resolved via a helper function `resolveAssetUrl(path: string)` that prepends `API_BASE` if the path starts with `"/"`.
+
+```typescript
+export interface PriceInfo {
+  amount: number;
+  currency: string;
+  formatted: string; // e.g. "$100"
+}
+
+export interface ConditionAudit {
+  spoken_claim: string;
+  ai_score: number; // e.g. 9.2
+  ai_badge_text: string; // e.g. "9.2/10 • Verified Clean"
+  ai_visual_notes: string;
+}
+
+export interface ItemAssets {
+  raw_frame_url: string;
+  sam_mask_overlay_url: string;
+  real_cutout_png_url: string;
+  studio_showcase_url: string;
+  showcase_with_pricetag_url: string;
+}
+
+export interface ShowcaseItem {
+  item_id: string;
+  spoken_name: string;
+  seo_title: string;
+  category: string;
+  price: PriceInfo;
+  timestamp_sec: number;
+  condition: ConditionAudit;
+  description: string;
+  bounding_box: [number, number, number, number];
+  assets: ItemAssets;
+}
+
+export interface JobResponse {
+  job_id: string;
+  status: "processing" | "completed" | "failed";
+  video_url: string;
+  duration_sec: number;
+  transcript: string;
+  items: ShowcaseItem[];
+}

@@ -8,10 +8,13 @@ import type { HealthResponse, JobResponse } from "../types/pandrop";
 export const API_BASE: string =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
-/** Prepend API_BASE to backend-relative paths ("/static/…"); pass everything else through. */
+/**
+ * Prepend API_BASE to backend-relative paths ("/static/…", "/api/…").
+ * Everything else (absolute URLs, bundled /demo/… assets, data URIs) passes through.
+ */
 export function resolveAssetUrl(path: string): string {
   if (!path) return path;
-  if (path.startsWith("/") || path.startsWith("\\")) return `${API_BASE}${path}`;
+  if (path.startsWith("/static/") || path.startsWith("/api/")) return `${API_BASE}${path}`;
   return path;
 }
 

@@ -16,7 +16,7 @@ function TranscriptPanel({ job }: { job: JobResponse }) {
   const [ok, setOk] = useState(false);
   const words = job.transcript.trim() ? job.transcript.trim().split(/\s+/).length : 0;
   return (
-    <div className="glass rounded-2xl p-5">
+    <div className="card rounded-3xl p-5 px-6 py-5">
       <SectionLabel
         right={
           <button
@@ -27,10 +27,10 @@ function TranscriptPanel({ job }: { job: JobResponse }) {
               }
             }}
             aria-label="Copy transcript"
-            className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 font-mono text-[10px] tracking-[0.14em] text-dim transition hover:border-neon/40 hover:text-ink"
+            className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.05] px-2.5 py-1.5 text-[11.5px] font-bold text-mute transition hover:border-pink/45 hover:text-ink"
           >
-            {ok ? <Check size={11} className="text-mint" /> : <Copy size={11} />}
-            {ok ? "COPIED" : "COPY"}
+            {ok ? <Check size={12} className="text-mint" /> : <Copy size={12} />}
+            {ok ? "Copied" : "Copy"}
           </button>
         }
       >
@@ -38,24 +38,24 @@ function TranscriptPanel({ job }: { job: JobResponse }) {
       </SectionLabel>
       {job.transcript ? (
         <>
-          <p className="font-mono text-[12px] leading-relaxed text-dim">
-            <span className="mr-2 text-neon/70">❝</span>
+          <p className="text-[15px] leading-relaxed text-dim">
+            <span className="mr-1.5 font-bold text-pink">“</span>
             {job.transcript}
-            <span className="ml-2 text-neon/70">❞</span>
+            <span className="ml-1.5 font-bold text-pink">”</span>
           </p>
-          <div className="mt-4 flex items-center gap-2 border-t border-line pt-3.5">
-            <Chip>
-              <Clock3 size={10} /> {formatShortTime(job.duration_sec)}
+          <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-line pt-4">
+            <Chip tone="neutral">
+              <Clock3 size={11} /> {formatShortTime(job.duration_sec)}
             </Chip>
-            <Chip>{words} words</Chip>
-            <Chip tone="neon">
-              <FileText size={10} /> {job.items.length} intents
+            <Chip tone="neutral">{words} words</Chip>
+            <Chip tone="blue">
+              <FileText size={11} /> {job.items.length} items detected
             </Chip>
           </div>
         </>
       ) : (
-        <p className="text-[12.5px] text-faint italic">
-          No transcript returned for this clip.
+        <p className="text-[14px] text-faint italic">
+          No transcript was returned for this clip.
         </p>
       )}
     </div>
@@ -101,21 +101,23 @@ export default function Studio({
   };
 
   return (
-    <div className="relative z-10 mx-auto min-h-screen w-full max-w-[1500px] px-4 pt-20 pb-16 sm:px-7">
+    <div className="relative z-10 mx-auto min-h-screen w-full max-w-[1500px] px-4 pt-24 pb-16 sm:px-7">
       {/* ---------------- header ---------------- */}
       <motion.div
         initial={{ y: 18 }}
         animate={{ y: 0 }}
-        transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+        transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
         className="mb-7 flex flex-wrap items-end justify-between gap-4"
       >
         <div>
-          <p className="hud-label mb-1.5">SHOWCASE · {job.job_id}</p>
-          <h1 className="text-[26px] leading-tight font-extrabold tracking-tight text-ink sm:text-[30px]">
+          <p className="label mb-1">
+            Showcase · <span className="font-mono text-[11.5px]">{job.job_id}</span>
+          </p>
+          <h1 className="font-display text-[28px] leading-tight font-bold tracking-tight text-ink sm:text-[32px]">
             {items.length > 0 ? (
               <>
                 {items.length} item{items.length === 1 ? "" : "s"} ready to{" "}
-                <span className="price-gradient">sell</span>
+                <span className="brand-gradient-text">sell</span>
               </>
             ) : (
               "Showcase ready"
@@ -123,24 +125,21 @@ export default function Studio({
           </h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Chip tone={isDemo ? "gold" : "mint"}>
-            <Boxes size={11} />
-            {isDemo ? "Demo preset" : "Live pipeline"}
+          <Chip tone={isDemo ? "amber" : "mint"}>
+            <Boxes size={12} />
+            {isDemo ? "Sample pipeline output" : "Live pipeline"}
           </Chip>
-          <Chip>
-            <Clock3 size={11} /> {formatShortTime(job.duration_sec)} clip
+          <Chip tone="neutral">
+            <Clock3 size={12} /> {formatShortTime(job.duration_sec)} clip
           </Chip>
-          <button
-            onClick={onReset}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-1.5 text-[12px] font-semibold text-dim transition hover:border-neon/40 hover:text-ink lg:hidden"
-          >
+          <button onClick={onReset} className="btn-ghost lg:!hidden">
             New session
           </button>
         </div>
       </motion.div>
 
       {job.status === "failed" && (
-        <div className="mb-6 rounded-xl border border-ember/40 bg-ember/[0.08] px-4 py-3 text-[13px] text-[#FFA36B]">
+        <div className="mb-6 rounded-2xl border border-red-500/40 bg-red-500/[0.08] px-4 py-3 text-[14px] font-semibold text-red-300">
           The pipeline reported a failure for this job — results below may be partial.
         </div>
       )}
@@ -148,16 +147,16 @@ export default function Studio({
       {/* ---------------- body ---------------- */}
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,480px)_minmax(0,1fr)] xl:grid-cols-[minmax(0,540px)_minmax(0,1fr)]">
         {/* left rail */}
-        <div className="space-y-5 lg:sticky lg:top-[76px]">
+        <div className="space-y-5 lg:sticky lg:top-[88px]">
           <motion.div
             initial={{ y: 22 }}
             animate={{ y: 0 }}
-            transition={{ duration: 0.6, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
+            transition={{ duration: 0.55, delay: 0.08, ease: [0.22, 1, 0.36, 1] }}
           >
             <VideoPanel
               job={{ ...job, items }}
               isDemo={isDemo}
-              activeItem={activeItem ?? (isDemo ? (items[0] ?? null) : null)}
+              activeItem={activeItem}
               seekReq={seekReq}
               onTime={setTime}
             />
@@ -165,7 +164,7 @@ export default function Studio({
           <motion.div
             initial={{ y: 22 }}
             animate={{ y: 0 }}
-            transition={{ duration: 0.6, delay: 0.18, ease: [0.22, 1, 0.36, 1] }}
+            transition={{ duration: 0.55, delay: 0.16, ease: [0.22, 1, 0.36, 1] }}
           >
             <TranscriptPanel job={job} />
           </motion.div>
@@ -175,8 +174,8 @@ export default function Studio({
         <div>
           <SectionLabel
             right={
-              <span className="font-mono text-[10px] tracking-[0.16em] text-faint">
-                CLICK A CARD → ASSET LAB
+              <span className="text-[12px] font-bold text-faint">
+                Click a card to open the asset lab
               </span>
             }
           >
@@ -184,22 +183,21 @@ export default function Studio({
           </SectionLabel>
 
           {items.length === 0 ? (
-            <div className="glass flex flex-col items-center gap-3 rounded-2xl px-6 py-16 text-center">
-              <PackageOpen size={30} className="text-faint" />
-              <p className="text-[14px] font-bold text-ink">No items detected</p>
-              <p className="max-w-sm text-[12.5px] leading-relaxed text-faint">
-                Try a clip where you point at each product and say its name and
-                price out loud — e.g. “this camera, 85 dollars, works perfectly”.
+            <div className="card flex flex-col items-center gap-3 rounded-3xl px-6 py-16 text-center">
+              <PackageOpen size={32} className="text-faint" />
+              <p className="font-display text-[16px] font-semibold text-ink">
+                No items detected
               </p>
-              <button
-                onClick={onReset}
-                className="mt-2 rounded-lg border border-neon/40 bg-neon/[0.08] px-4 py-2 text-[12.5px] font-bold text-[#8DF4FF] transition hover:bg-neon/[0.16]"
-              >
+              <p className="max-w-sm text-[14px] leading-relaxed text-mute">
+                Try a clip where you point at each product and say its name and price
+                out loud — e.g. “this camera, 85 dollars, works perfectly”.
+              </p>
+              <button onClick={onReset} className="btn-primary mt-2 !py-2.5 !text-[13.5px]">
                 Try another video
               </button>
             </div>
           ) : (
-            <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3">
+            <div className="grid gap-5 sm:grid-cols-2 2xl:grid-cols-3">
               {items.map((item, i) => (
                 <ItemCard
                   key={item.item_id}

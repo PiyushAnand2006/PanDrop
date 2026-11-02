@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { JobResponse } from "./types/pandrop";
 import { checkHealth, processVideo } from "./lib/api";
-import { buildDemoJob, DEMO_JOB_ID } from "./lib/demoJob";
+import { buildDemoJob } from "./lib/demoJob";
 import Atmosphere from "./components/Atmosphere";
 import TopBar, { type BackendState } from "./components/TopBar";
 import Landing from "./components/Landing";
@@ -63,7 +63,8 @@ export default function App() {
 
   const handleDone = useCallback((result: JobResponse) => {
     setJob(result);
-    setIsDemo(result.job_id === DEMO_JOB_ID);
+    // isDemo was already set by the entry flow (handleDemo/handleFile);
+    // the demo job keeps its real backend job id, so don't second-guess it here.
     setView("studio");
     window.scrollTo({ top: 0 });
   }, []);

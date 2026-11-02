@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
 import { Pause, Play, Volume2, VolumeX } from "lucide-react";
 import type { JobResponse, ShowcaseItem } from "../types/pandrop";
 import { resolveAssetUrl } from "../lib/api";
@@ -30,25 +29,7 @@ export default function VideoPanel({
   const [muted, setMuted] = useState(false);
   const [failed, setFailed] = useState(false);
   const [nativeDuration, setNativeDuration] = useState(0);
-  const duration = isDemo ? job.duration_sec : nativeDuration || job.duration_sec;
-
-  /* ---------------- simulated demo clock ---------------- */
-  useEffect(() => {
-    if (!isDemo || !playing) return;
-    let raf = 0;
-    let last = performance.now();
-    const step = (now: number) => {
-      const dt = (now - last) / 1000;
-      last = now;
-      setTime((t) => {
-        const nt = t + dt;
-        return nt >= duration ? 0 : nt; // loop the reel
-      });
-      raf = requestAnimationFrame(step);
-    };
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
-  }, [isDemo, playing, duration]);
+  const duration = nativeDuration || job.duration_sec;
 
   /* report time upward (throttled to 1/10s) */
   useEffect(() => {
@@ -65,21 +46,15 @@ export default function VideoPanel({
   const seek = useCallback(
     (t: number) => {
       const clamped = Math.min(Math.max(0, t), duration || 0);
-      if (isDemo) {
-        setTime(clamped);
-      } else if (videoRef.current) {
+      if (videoRef.current) {
         videoRef.current.currentTime = clamped;
-        setTime(clamped);
       }
+      setTime(clamped);
     },
-    [isDemo, duration],
+    [duration],
   );
 
   const togglePlay = () => {
-    if (isDemo) {
-      setPlaying((p) => !p);
-      return;
-    }
     const v = videoRef.current;
     if (!v) return;
     if (v.paused) void v.play().catch(() => setFailed(true));
@@ -96,58 +71,17 @@ export default function VideoPanel({
   const frac = duration > 0 ? time / duration : 0;
 
   return (
-    <div className="hud-corners glass overflow-hidden rounded-2xl">
+    <div className="ring-glow glass overflow-hidden rounded-3xl">
       {/* ---------------- screen ---------------- */}
-      <div className="relative aspect-video w-full overflow-hidden bg-[#05060a]">
-        {isDemo ? (
-          <>
-            <AnimatePresence mode="sync">
-              {activeItem && (
-                <motion.img
-                  key={activeItem.item_id}
-                  src={resolveAssetUrl(activeItem.assets.studio_showcase_url)}
-                  alt={activeItem.spoken_name}
-                  initial={{ scale: 1.04 }}
-                  animate={{ scale: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.55, ease: "easeOut" }}
-                  className="absolute inset-0 h-full w-full object-cover"
-                  draggable={false}
-                />
-              )}
-            </AnimatePresence>
-            <div className="scanlines pointer-events-none absolute inset-0 opacity-70" />
-            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/55 via-transparent to-black/25" />
-            <div className="absolute top-3 left-3 flex items-center gap-2">
-              <span className="flex items-center gap-1.5 rounded-md bg-black/55 px-2 py-1 font-mono text-[10px] tracking-[0.2em] text-[#FF7B7B] backdrop-blur-sm">
-                <span className="anim-pulse-dot h-1.5 w-1.5 rounded-full bg-[#FF4D4D]" />
-                REC · DEMO REEL
-              </span>
-            </div>
-            <div className="absolute right-3 bottom-3 rounded-md bg-black/55 px-2 py-1 font-mono text-[11px] tracking-[0.15em] text-ink/90 backdrop-blur-sm tabular-nums">
-              T+{formatTimecode(time)}
-            </div>
-            {/* center play overlay */}
-            {!playing && (
-              <button
-                onClick={togglePlay}
-                aria-label="Play demo reel"
-                className="group absolute inset-0 grid place-items-center"
-              >
-                <span className="grid h-16 w-16 place-items-center rounded-full border border-neon/50 bg-obsidian/70 text-neon backdrop-blur-md transition-all duration-300 group-hover:scale-110 group-hover:shadow-glow-neon">
-                  <Play size={26} className="ml-1" />
-                </span>
-              </button>
-            )}
-          </>
-        ) : failed ? (
-          <div className="absolute inset-0 grid place-items-center">
-            <div className="text-center">
-              <p className="font-mono text-[11px] tracking-[0.2em] text-faint">
-                SOURCE VIDEO UNAVAILABLE
+      <div className="relative aspect-video w-full overflow-hidden bg-black">
+        {failed ? (
+          <div className="absolute inset-0 grid place-items-center p-6 text-center">
+            <div>
+              <p className="font-display text-[14px] font-semibold text-dim">
+                Source video can't play in this browser
               </p>
-              <p className="mt-2 text-[12px] text-dim">
-                Assets below were already rendered — everything is still live.
+              <p className="mt-1.5 text-[13px] text-mute">
+                Everything below was already rendered — it's all still live.
               </p>
             </div>
           </div>
@@ -156,6 +90,7 @@ export default function VideoPanel({
             <video
               ref={videoRef}
               src={resolveAssetUrl(job.video_url)}
+              poster={job.items[0] ? resolveAssetUrl(job.items[0].assets.raw_frame_url) : undefined}
               className="absolute inset-0 h-full w-full object-contain"
               playsInline
               preload="metadata"
@@ -170,15 +105,28 @@ export default function VideoPanel({
               <button
                 onClick={togglePlay}
                 aria-label="Play video"
-                className="group absolute inset-0 grid place-items-center"
+                className="group absolute inset-0 grid place-items-center bg-black/25"
               >
-                <span className="grid h-16 w-16 place-items-center rounded-full border border-neon/50 bg-obsidian/70 text-neon backdrop-blur-md transition-all duration-300 group-hover:scale-110 group-hover:shadow-glow-neon">
+                <span className="brand-gradient grid h-16 w-16 place-items-center rounded-full text-white shadow-glow-pink transition-transform duration-200 group-hover:scale-110">
                   <Play size={26} className="ml-1" />
                 </span>
               </button>
             )}
           </>
         )}
+
+        {/* demo / live badge */}
+        <span className="pointer-events-none absolute top-3 left-3 inline-flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[11.5px] font-bold text-white/90 backdrop-blur-sm">
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${isDemo ? "bg-gold" : "bg-mint"} ${
+              playing ? "anim-pulse-dot" : ""
+            }`}
+          />
+          {isDemo ? "Sample clip" : "Your video"}
+        </span>
+        <span className="pointer-events-none absolute right-3 bottom-3 rounded-lg bg-black/60 px-2 py-1 font-mono text-[11px] font-semibold text-white/90 backdrop-blur-sm tabular-nums">
+          T+{formatTimecode(time)}
+        </span>
       </div>
 
       {/* ---------------- transport ---------------- */}
@@ -186,12 +134,12 @@ export default function VideoPanel({
         <button
           onClick={togglePlay}
           aria-label={playing ? "Pause" : "Play"}
-          className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-neon/30 bg-neon/[0.08] text-neon transition hover:bg-neon/[0.16]"
+          className="brand-gradient grid h-10 w-10 shrink-0 cursor-pointer place-items-center rounded-xl text-white shadow-glow-pink transition-transform duration-150 active:scale-95"
         >
-          {playing ? <Pause size={16} /> : <Play size={16} className="ml-0.5" />}
+          {playing ? <Pause size={17} /> : <Play size={17} className="ml-0.5" />}
         </button>
 
-        <span className="shrink-0 font-mono text-[11px] text-dim tabular-nums">
+        <span className="shrink-0 font-mono text-[12px] font-semibold text-dim tabular-nums">
           {formatTimecode(time)}{" "}
           <span className="text-faint">/ {formatShortTime(duration)}</span>
         </span>
@@ -212,16 +160,12 @@ export default function VideoPanel({
           onPointerMove={(e) => {
             if (e.buttons & 1) onTrackPointer(e);
           }}
-          className="group relative mx-1 h-9 flex-1 cursor-pointer touch-none select-none"
+          className="group/mk relative mx-1 h-10 flex-1 cursor-pointer touch-none select-none"
         >
-          <div className="absolute top-1/2 right-0 left-0 h-1.5 -translate-y-1/2 overflow-hidden rounded-full bg-white/[0.08]">
+          <div className="absolute top-1/2 right-0 left-0 h-1.5 -translate-y-1/2 overflow-hidden rounded-full bg-white/[0.1]">
             <div
-              className="h-full rounded-full"
-              style={{
-                width: `${frac * 100}%`,
-                background: "linear-gradient(90deg, #00F0FF, #0066FF)",
-                boxShadow: "0 0 10px rgba(0,240,255,0.5)",
-              }}
+              className="brand-gradient h-full rounded-full"
+              style={{ width: `${frac * 100}%` }}
             />
           </div>
           {/* markers */}
@@ -240,18 +184,18 @@ export default function VideoPanel({
                 className="group/mk absolute top-1/2 z-10 -translate-x-1/2 -translate-y-1/2"
               >
                 <span
-                  className={`block h-2.5 w-2.5 rotate-45 border transition-all duration-200 ${
+                  className={`block h-3 w-3 rotate-45 rounded-[3px] border-2 transition-all duration-200 ${
                     isActive
-                      ? "scale-125 border-neon bg-neon shadow-[0_0_10px_rgba(0,240,255,0.8)]"
-                      : "border-neon/60 bg-obsidian group-hover/mk:bg-neon/60"
+                      ? "scale-125 border-pink bg-pink shadow-glow-pink"
+                      : "border-pink/70 bg-base group-hover/mk:bg-pink/60"
                   }`}
                 />
-                <span className="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 rounded-md border border-white/12 bg-obsidian/95 px-2.5 py-1.5 text-center opacity-0 backdrop-blur transition-opacity duration-150 group-hover/mk:opacity-100">
-                  <span className="block max-w-[180px] truncate text-[11px] font-semibold text-ink">
+                <span className="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 rounded-xl border border-white/12 bg-surface/95 px-3 py-2 text-center opacity-0 shadow-card backdrop-blur transition-opacity duration-150 group-hover/mk:opacity-100">
+                  <span className="block max-w-[190px] truncate font-display text-[12.5px] font-semibold text-ink">
                     {item.spoken_name}
                   </span>
-                  <span className="block font-mono text-[9.5px] tracking-[0.15em] text-neon/80">
-                    T+{formatTimecode(item.timestamp_sec)}
+                  <span className="block font-mono text-[10.5px] font-semibold text-[#F9A8D4]">
+                    T+{formatTimecode(item.timestamp_sec)} · {item.price.formatted}
                   </span>
                 </span>
               </button>
@@ -265,9 +209,9 @@ export default function VideoPanel({
             if (videoRef.current) videoRef.current.muted = !muted;
           }}
           aria-label={muted ? "Unmute" : "Mute"}
-          className="hidden h-9 w-9 shrink-0 place-items-center rounded-lg border border-white/10 bg-white/[0.04] text-dim transition hover:text-ink sm:grid"
+          className="hidden h-10 w-10 shrink-0 cursor-pointer place-items-center rounded-xl border border-white/10 bg-white/[0.04] text-mute transition hover:text-ink sm:grid"
         >
-          {muted ? <VolumeX size={15} /> : <Volume2 size={15} />}
+          {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
         </button>
       </div>
     </div>

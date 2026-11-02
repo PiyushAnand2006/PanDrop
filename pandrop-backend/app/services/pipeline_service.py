@@ -1,0 +1,193 @@
+"""End-to-end async orchestration: upload -> transcript -> items -> showcase cards."""
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import uuid
+from pathlib import Path
+
+import cv2
+
+from app.config import settings
+from app.schemas import (
+    ConditionInfo,
+    ItemAssets,
+    JobResponse,
+    PriceInfo,
+    ProcessedItem,
+)
+from app.services import media_service
+from app.services.compositor_service import (
+    create_hud_overlay,
+    create_studio_showcase,
+    decode_mask_bytes,
+    extract_real_object_cutout,
+)
+from app.services.meta_ai_service import MetaAIService
+from app.utils.image_utils import format_price
+
+logger = logging.getLogger(__name__)
+
+
+def new_job_id() -> str:
+    return f"job_{uuid.uuid4().hex[:8]}"
+
+
+def _static_url(job_id: str, *parts: str) -> str:
+    return "/static/jobs/" + job_id + "/" + "/".join(parts)
+
+
+async def _process_item(
+    item_index: int,
+    item,
+    video_path: Path,
+    job_dir: Path,
+    job_id: str,
+    meta: MetaAIService,
+) -> ProcessedItem:
+    item_id = f"item_{item_index + 1}"
+    item_dir = job_dir / item_id
+    item_dir.mkdir(parents=True, exist_ok=True)
+    price_formatted = format_price(float(item.asking_price))
+
+    # 1. Candidate frames around the spoken timestamp.
+    frame_paths = media_service.extract_candidate_frames(
+        video_path,
+        float(item.timestamp_sec),
+        item_dir / "candidates",
+        window_sec=settings.frame_window_sec,
+        count=settings.candidate_frames_per_item,
+    )
+    if not frame_paths:
+        raise ValueError(f"No frames could be extracted for {item_id} at {item.timestamp_sec}s")
+
+    # 2. Muse Wonder: best frame + bbox + condition audit.
+    audit = await meta.analyze_frames_and_audit_condition(item, frame_paths)
+    best_idx = max(0, min(int(audit.best_frame_index), len(frame_paths) - 1))
+    best_frame_path = item_dir / "raw_frame.jpg"
+    frame_bgr = cv2.imread(str(frame_paths[best_idx]))
+    if frame_bgr is None:
+        raise ValueError(f"Failed to read best frame for {item_id}")
+    cv2.imwrite(str(best_frame_path), frame_bgr)
+
+    # 3. SAM 3.1: real-object mask.
+    mask_bytes = await meta.segment_real_object(
+        best_frame_path, item.spoken_name, list(audit.bounding_box), list(audit.point_coords)
+    )
+    mask = decode_mask_bytes(mask_bytes)
+    (item_dir / "mask.png").write_bytes(mask_bytes)
+
+    # 4. Compositor: HUD overlay + real cutout + studio showcase.
+    create_hud_overlay(
+        frame_bgr, mask, list(audit.bounding_box),
+        item.spoken_name, price_formatted, item_dir / "sam_hud_overlay.png",
+    )
+    extract_real_object_cutout(
+        frame_bgr, mask, list(audit.bounding_box), item_dir / "real_cutout.png"
+    )
+    bg_bytes = await meta.generate_studio_backdrop(
+        item.spoken_name, item.category, item_dir / "real_cutout.png"
+    )
+    create_studio_showcase(
+        item_dir / "real_cutout.png",
+        bg_bytes,
+        price_formatted,
+        item.spoken_name,
+        audit.ai_badge_text,
+        item_dir / "studio_showcase.png",
+        item_dir / "showcase_pricetag.png",
+    )
+
+    # 5. Muse Spark listing copy.
+    copy = await meta.generate_listing_copy(item, audit)
+
+    return ProcessedItem(
+        item_id=item_id,
+        spoken_name=item.spoken_name,
+        seo_title=copy.seo_title or item.spoken_name,
+        category=item.category,
+        price=PriceInfo(
+            amount=float(item.asking_price), currency="USD", formatted=price_formatted
+        ),
+        timestamp_sec=float(item.timestamp_sec),
+        condition=ConditionInfo(
+            spoken_claim=item.spoken_condition,
+            ai_score=float(audit.ai_condition_score),
+            ai_badge_text=audit.ai_badge_text,
+            ai_visual_notes=audit.ai_visual_notes,
+        ),
+        description=copy.description,
+        tags=copy.tags,
+        bounding_box=[int(v) for v in audit.bounding_box],
+        assets=ItemAssets(
+            raw_frame_url=_static_url(job_id, item_id, "raw_frame.jpg"),
+            sam_mask_overlay_url=_static_url(job_id, item_id, "sam_hud_overlay.png"),
+            real_cutout_png_url=_static_url(job_id, item_id, "real_cutout.png"),
+            studio_showcase_url=_static_url(job_id, item_id, "studio_showcase.png"),
+            showcase_with_pricetag_url=_static_url(job_id, item_id, "showcase_pricetag.png"),
+        ),
+    )
+
+
+async def process_video(video_bytes: bytes, filename: str) -> JobResponse:
+    """Run the full pipeline for one uploaded video."""
+    media_service.validate_video_file(filename)
+    if len(video_bytes) > settings.max_upload_mb * 1024 * 1024:
+        raise ValueError(f"Upload exceeds {settings.max_upload_mb} MB limit")
+
+    job_id = new_job_id()
+    job_dir = settings.jobs_path / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+    suffix = Path(filename).suffix.lower() or ".mp4"
+    video_path = job_dir / f"input_video{suffix}"
+    video_path.write_bytes(video_bytes)
+
+    probe = media_service.probe_video(video_path)
+    duration = float(probe.get("duration_sec", 0.0) or 0.0)
+
+    audio_path = media_service.extract_audio(video_path, job_dir / "audio.wav")
+
+    meta = MetaAIService()
+    transcript = await meta.transcribe_audio(audio_path)
+    if transcript.duration_sec <= 0:
+        transcript = transcript.model_copy(update={"duration_sec": duration})
+
+    items = await meta.extract_items_from_transcript(transcript)
+    if not items:
+        raise ValueError("No sellable items could be detected from the video audio")
+
+    # Fan out: all item workers run concurrently.
+    results = await asyncio.gather(
+        *(
+            _process_item(i, item, video_path, job_dir, job_id, meta)
+            for i, item in enumerate(items)
+        ),
+        return_exceptions=True,
+    )
+    processed: list[ProcessedItem] = []
+    for i, result in enumerate(results):
+        if isinstance(result, Exception):
+            logger.error("Item %d failed: %s", i + 1, result)
+            raise ValueError(f"Processing failed for item {i + 1}: {result}") from result
+        processed.append(result)
+
+    response = JobResponse(
+        job_id=job_id,
+        status="completed",
+        video_url=_static_url(job_id, video_path.name),
+        duration_sec=duration,
+        transcript=transcript.text,
+        items=processed,
+    )
+    (job_dir / "result.json").write_text(
+        json.dumps(response.model_dump(), indent=2), encoding="utf-8"
+    )
+    return response
+
+
+def load_job_result(job_id: str) -> JobResponse | None:
+    path = settings.jobs_path / job_id / "result.json"
+    if not path.exists():
+        return None
+    return JobResponse(**json.loads(path.read_text(encoding="utf-8")))

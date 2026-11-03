@@ -191,7 +191,7 @@ async def process_video(
             "No items from speech for job %s; trying vision-only extraction", job_id
         )
         scan_paths, scan_times = _extract_scan_frames(
-            video_path, job_dir / "scan", count=3
+            video_path, job_dir / "scan", count=6
         )
         if scan_paths:
             items = await meta.detect_items_from_frames(scan_paths, scan_times)

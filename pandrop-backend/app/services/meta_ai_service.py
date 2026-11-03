@@ -270,73 +270,146 @@ class MetaAIService:
             return []
         return _heuristic_parse_items(text, transcript)
 
-    # ----------------------------------------------------------------- Wonder
+    # --------------------------------------------------- vision-only detection
     async def detect_items_from_frames(
         self, frame_paths: list[Path], frame_times: list[float]
     ) -> list[DetectedItemIntent]:
-        """Vision-first fallback: identify sellable products directly in video
-        frames when the clip has no usable speech. Returns one intent per
-        distinct product, with a rough price estimate and a bbox in 0-1000
-        coordinates for the vision pipeline to refine."""
+        """Vision-first fallback with multiple accuracy layers:
+        L1 — wide multi-frame proposal scan,
+        L2 — consolidation pass that merges duplicates, verifies each candidate
+             against the frames and corrects labels,
+        L3 — Wonder per-item audits downstream re-check every item again."""
         client = self._openai()
         if client is None or not frame_paths:
             return []
         try:
-            content: list[dict] = [
-                {
-                    "type": "text",
-                    "text": (
-                        f"These are {len(frame_paths)} frames from one product video "
-                        "(in order, with their timestamps). List every distinct physical "
-                        "product a person could realistically sell that is clearly visible. "
-                        "Ignore people, walls and packaging text. Return ONLY a JSON array, "
-                        "one element per product: {\"name\": str, \"category\": str, "
-                        "\"estimated_price_usd\": number, \"best_frame_index\": int (0-based), "
-                        "\"bbox_0_1000\": [x_min, y_min, x_max, y_max] in 0-1000 coordinates of "
-                        "that frame, \"point_0_1000\": [x, y] inside the product}. "
-                        "If nothing sellable is visible, return []."
-                    ),
-                }
-            ]
-            for p in frame_paths:
-                content.append(
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/jpeg;base64,{encode_image_b64(Path(p))}"
-                        },
-                    }
-                )
-            resp = await client.chat.completions.create(
-                model=settings.muse_spark_model,
-                messages=[{"role": "user", "content": content}],
-                temperature=0.1,
+            # ---- Layer 1: proposal scan ---------------------------------
+            candidates = await self._propose_items_from_frames(
+                frame_paths, frame_times, client
             )
-            raw = resp.choices[0].message.content or "[]"
-            logger.info("Vision-only detection raw response: %r", raw[:400])
-            data = _parse_json(raw)
-            intents: list[DetectedItemIntent] = []
-            seen: set[str] = set()
-            for d in data:
-                name = str(d.get("name", "")).strip()
-                if not name or name.lower() in seen:
-                    continue
-                seen.add(name.lower())
-                best_idx = int(d.get("best_frame_index", 0) or 0)
-                best_idx = max(0, min(best_idx, len(frame_paths) - 1))
-                intents.append(
-                    DetectedItemIntent(
-                        spoken_name=name[:80],
-                        asking_price=float(d.get("estimated_price_usd", 25.0) or 25.0),
-                        spoken_condition="",
-                        timestamp_sec=round(float(frame_times[best_idx]), 2),
-                        category=str(d.get("category", "General")).title()[:40],
-                    )
-                )
-            return intents
+            if not candidates:
+                return []
+            proposal_count = len(candidates)
+            # ---- Layer 2: consolidation / verification ------------------
+            refined = await self._consolidate_items(
+                frame_paths, frame_times, candidates, client
+            )
+            if refined is not None:
+                candidates = refined
+            logger.info(
+                "Vision-only detection settled on %d item(s) (from %d proposals)",
+                len(candidates), proposal_count,
+            )
+            return candidates
         except Exception as exc:  # noqa: BLE001
             logger.warning("Vision-only detection failed: %s", exc)
             return []
+
+    async def _propose_items_from_frames(
+        self,
+        frame_paths: list[Path],
+        frame_times: list[float],
+        client: AsyncOpenAI,
+    ) -> list[dict]:
+        """Layer 1: raw proposal scan over the frames."""
+        content: list[dict] = [
+            {
+                "type": "text",
+                "text": (
+                    f"These are {len(frame_paths)} frames from ONE product video "
+                    "(in order, with their timestamps). List every distinct physical "
+                    "product a person could realistically sell that is clearly visible. "
+                    "Rules: describe each product by its colour + material + object type; "
+                    "do NOT list the same object twice even if it appears in several "
+                    "frames; do NOT invent products that are not clearly visible; ignore "
+                    "people, walls, tables and background decor. Return ONLY a JSON array, "
+                    "one element per product: {\"name\": str, \"category\": str, "
+                    "\"estimated_price_usd\": number, \"best_frame_index\": int (0-based), "
+                    "\"bbox_0_1000\": [x_min, y_min, x_max, y_max] in 0-1000 coordinates of "
+                    "that frame, \"point_0_1000\": [x, y] inside the product}. "
+                    "If nothing sellable is visible, return []."
+                ),
+            }
+        ]
+        for p in frame_paths:
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{encode_image_b64(Path(p))}"},
+                }
+            )
+        resp = await client.chat.completions.create(
+            model=settings.muse_spark_model,
+            messages=[{"role": "user", "content": content}],
+            temperature=0.1,
+        )
+        raw = resp.choices[0].message.content or "[]"
+        logger.info("Vision L1 proposals raw response: %r", raw[:400])
+        return list(_parse_json(raw))
+
+    async def _consolidate_items(
+        self,
+        frame_paths: list[Path],
+        frame_times: list[float],
+        candidates: list[dict],
+        client: AsyncOpenAI,
+    ) -> list[dict] | None:
+        """Layer 2: verification + consolidation pass over the L1 proposals.
+        Returns the refined list, or None if this layer fails (caller keeps
+        the Layer-1 proposals)."""
+        content: list[dict] = [
+            {
+                "type": "text",
+                "text": (
+                    f"These are {len(frame_paths)} frames from ONE product video. A first "
+                    "detection pass produced this candidate list:\n"
+                    f"{json.dumps(candidates, indent=1)}\n\n"
+                    "Act as a strict verifier. For each candidate: (1) confirm it is "
+                    "really a clearly visible, distinct physical product — drop shadows, "
+                    "reflections, blurred blobs and duplicates of the same object; "
+                    "(2) merge candidates that are the same object; (3) correct the name "
+                    "to 'colour + material + object type'; (4) fix category, price and the "
+                    "bbox of the frame where the product is sharpest. Return ONLY the final "
+                    "JSON array in the same schema as the candidates "
+                    "(name, category, estimated_price_usd, best_frame_index, bbox_0_1000, "
+                    "point_0_1000). Return [] if nothing survives."
+                ),
+            }
+        ]
+        for p in frame_paths:
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{encode_image_b64(Path(p))}"},
+                }
+            )
+        resp = await client.chat.completions.create(
+            model=settings.muse_spark_model,
+            messages=[{"role": "user", "content": content}],
+            temperature=0.0,
+        )
+        raw = resp.choices[0].message.content or "[]"
+        logger.info("Vision L2 consolidation raw response: %r", raw[:400])
+        data = list(_parse_json(raw))
+        intents: list[DetectedItemIntent] = []
+        seen: set[str] = set()
+        for d in data:
+            name = str(d.get("name", "")).strip()
+            if not name or name.lower() in seen:
+                continue
+            seen.add(name.lower())
+            best_idx = int(d.get("best_frame_index", 0) or 0)
+            best_idx = max(0, min(best_idx, len(frame_paths) - 1))
+            intents.append(
+                DetectedItemIntent(
+                    spoken_name=name[:80],
+                    asking_price=float(d.get("estimated_price_usd", 25.0) or 25.0),
+                    spoken_condition="",
+                    timestamp_sec=round(float(frame_times[best_idx]), 2),
+                    category=str(d.get("category", "General")).title()[:40],
+                )
+            )
+        return intents
 
     # ----------------------------------------------------------------- Wonder
     async def analyze_frames_and_audit_condition(

@@ -225,11 +225,17 @@ export async function publishItems(
   itemIds: string[],
   overrides: Record<string, PublishItemOverride> = {},
 ): Promise<MarketplaceListing[]> {
-  const res = await fetch(`${await base()}/api/v1/marketplace/publish`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ user_id: userId, job_id: jobId, item_ids: itemIds, overrides }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${await base()}/api/v1/marketplace/publish`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: userId, job_id: jobId, item_ids: itemIds, overrides }),
+    });
+  } catch {
+    resetBase();
+    throwOffline(DEFAULT_BASES[0]);
+  }
   if (!res.ok) throw await readError(res, "Could not publish to the marketplace");
   return (await res.json()) as MarketplaceListing[];
 }

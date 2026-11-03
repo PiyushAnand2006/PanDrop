@@ -340,10 +340,13 @@ def publish_items(
             if item.get("is_published"):
                 continue
             ov = overrides.get(item["item_id"], {}) if isinstance(overrides, dict) else {}
-            price = float(ov.get("price", item["price"]["amount"])
-                          if isinstance(ov, dict) else item["price"]["amount"])
-            title = (ov.get("seo_title") or item.get("seo_title") or item["spoken_name"]
-                     if isinstance(ov, dict) else item.get("seo_title"))
+            if not isinstance(ov, dict):
+                ov = {}
+            # Overrides may carry explicit nulls (e.g. title-only edits) — fall
+            # back to the extracted values instead of crashing on float(None).
+            price_raw = ov.get("price")
+            price = float(price_raw) if price_raw is not None else float(item["price"]["amount"])
+            title = (ov.get("seo_title") or item.get("seo_title") or item["spoken_name"])
             listing_id = _new_id("listing")
             record = {
                 "listing_id": listing_id,

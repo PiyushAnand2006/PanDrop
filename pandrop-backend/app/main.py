@@ -141,7 +141,7 @@ async def publish_items(body: PublishRequest) -> list[MarketplaceListing]:
     try:
         return store_service.publish_items(
             body.user_id, body.job_id, body.item_ids,
-            {k: v.model_dump() for k, v in body.overrides.items()},
+            {k: v.model_dump(exclude_none=True) for k, v in body.overrides.items()},
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

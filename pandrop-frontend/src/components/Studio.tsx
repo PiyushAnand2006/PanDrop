@@ -242,6 +242,7 @@ function StudioResult({
   job,
   isDemo,
   user,
+  mockAI,
   onGoDiscover,
   onPublished,
   onNewSession,
@@ -249,6 +250,7 @@ function StudioResult({
   job: JobResponse;
   isDemo: boolean;
   user: UserAccount | null;
+  mockAI: boolean | null;
   onGoDiscover: () => void;
   /** Called after a successful publish so the app can refresh wallet/lists. */
   onPublished: () => void;
@@ -378,9 +380,13 @@ function StudioResult({
           </h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Chip tone={isDemo ? "amber" : "pink"}>
+          <Chip tone={isDemo || mockAI ? "amber" : "pink"}>
             <Boxes size={12} />
-            {isDemo ? "Sample pipeline output" : "Live pipeline"}
+            {isDemo
+              ? "Sample pipeline output"
+              : mockAI
+                ? "Offline preview · mock AI"
+                : "Live pipeline · Meta AI"}
           </Chip>
           <Chip tone="neutral">
             <Clock3 size={12} /> {formatShortTime(job.duration_sec)} clip
@@ -390,6 +396,24 @@ function StudioResult({
           </button>
         </div>
       </motion.div>
+
+      {/* mock-mode honesty callout */}
+      {mockAI && !isDemo && (
+        <div className="mb-6 rounded-2xl border border-gold/40 bg-gold/[0.08] px-5 py-4">
+          <p className="font-display text-[14.5px] font-semibold text-[#FCD34D]">
+            Running in offline preview mode — the Meta AI models aren't connected
+          </p>
+          <p className="mt-1 text-[13.5px] leading-relaxed text-[#FDE68A]">
+            Without the live models there is no speech recognition or item detection,
+            so names, prices and audit scores below are placeholder output, not real
+            detections. For accurate extraction, create{" "}
+            <span className="font-mono text-[12.5px]">pandrop-backend/.env</span> with{" "}
+            <span className="font-mono text-[12.5px]">META_API_KEY=…</span> and{" "}
+            <span className="font-mono text-[12.5px]">USE_MOCK_AI=false</span>, then
+            restart the backend.
+          </p>
+        </div>
+      )}
 
       {/* success banner */}
       <AnimatePresence>
@@ -691,12 +715,14 @@ function ItemReviewCard({
 export default function Studio({
   user,
   job,
+  mockAI,
   onJob,
   onGoDiscover,
   onPublished,
 }: {
   user: UserAccount | null;
   job: JobResponse | null;
+  mockAI: boolean | null;
   onJob: (job: JobResponse | null) => void;
   onGoDiscover: () => void;
   onPublished: () => void;
@@ -759,6 +785,7 @@ export default function Studio({
           job={job}
           isDemo={isDemo}
           user={user}
+          mockAI={mockAI}
           onGoDiscover={onGoDiscover}
           onPublished={onPublished}
           onNewSession={newSession}

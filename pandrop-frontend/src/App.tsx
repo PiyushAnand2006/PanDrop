@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { JobResponse, MarketplaceListing, UserAccount } from "./types/pandrop";
-import { getUser, listUsers } from "./lib/api";
+import { getUser, listUsers, probeBackend } from "./lib/api";
 import Atmosphere from "./components/Atmosphere";
 import TopBar, { type View } from "./components/TopBar";
 import { CreateAccountModal } from "./components/AccountMenu";
@@ -17,6 +17,16 @@ export default function App() {
   const [walletVersion, setWalletVersion] = useState(0);
   const [createOpen, setCreateOpen] = useState(false);
   const [openListing, setOpenListing] = useState<MarketplaceListing | null>(null);
+
+  /* ---------------- backend probe (mock/live + reachability) ---------------- */
+  const [mockAI, setMockAI] = useState<boolean | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void probeBackend().then(({ mockAI }) => alive && setMockAI(mockAI));
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   /* ---------------- accounts ---------------- */
   useEffect(() => {
@@ -94,6 +104,7 @@ export default function App() {
         <Studio
           user={currentUser}
           job={studioJob}
+          mockAI={mockAI}
           onJob={setStudioJob}
           onGoDiscover={() => {
             setView("discover");

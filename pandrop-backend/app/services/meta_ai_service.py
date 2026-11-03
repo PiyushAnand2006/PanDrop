@@ -104,7 +104,45 @@ class MetaAIService:
             except Exception as exc:  # noqa: BLE001
                 if not self._should_fallback(exc):
                     raise
+                logger.warning(
+                    "Native audio route unavailable (%s); trying multimodal chat transcription", exc
+                )
+            # The gateway serves audio transcription through the multimodal chat
+            # model: upload the clip to /v1/files, then ask Muse to transcribe it.
+            try:
+                return await self._transcribe_via_chat(audio_path, client)
+            except Exception as exc:  # noqa: BLE001
+                if not self._should_fallback(exc):
+                    raise
         return self._fallback_transcript(audio_path)
+
+    async def _transcribe_via_chat(self, audio_path: Path, client: AsyncOpenAI) -> TranscriptResult:
+        with open(audio_path, "rb") as fh:
+            uploaded = await client.files.create(
+                file=(audio_path.name, fh, "audio/wav"),
+                purpose="user_data",
+            )
+        resp = await client.chat.completions.create(
+            model=settings.muse_voice_model,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": (
+                                "Transcribe this audio recording exactly. "
+                                "Return only the spoken words, no commentary."
+                            ),
+                        },
+                        {"type": "file", "file": {"file_id": uploaded.id}},
+                    ],
+                }
+            ],
+            temperature=0.0,
+        )
+        text = (resp.choices[0].message.content or "").strip()
+        return TranscriptResult(text=text, duration_sec=0.0)
 
     def _fallback_transcript(self, audio_path: Path) -> TranscriptResult:
         # Offline demo transcript. In a real upload the seller's speech is
@@ -132,6 +170,7 @@ class MetaAIService:
     ) -> list[DetectedItemIntent]:
         client = self._openai()
         text = (transcript.text or "").strip()
+        logger.info("Spark extract input transcript (%d chars): %r", len(text), text[:300])
         if client is not None and text:
             try:
                 prompt = (
@@ -149,7 +188,9 @@ class MetaAIService:
                     temperature=0.1,
                 )
                 raw = resp.choices[0].message.content or "[]"
+                logger.info("Spark extract raw response: %r", raw[:400])
                 data = _parse_json(raw)
+                logger.info("Spark parsed %d item(s)", len(data))
                 return [DetectedItemIntent(**d) for d in data]
             except Exception as exc:  # noqa: BLE001
                 if not self._should_fallback(exc):

@@ -97,7 +97,7 @@ class _Client:
     """Minimal HTTP helper over TestClient (in-process) or httpx (--url)."""
 
     def __init__(self, base_url: str = ""):
-        self.base_url = base_url.rstrip("/") if base_url else ""
+        self.base_url = _validate_base_url(base_url)
         self._tc = None
         if not self.base_url:
             from fastapi.testclient import TestClient
@@ -120,6 +120,28 @@ class _Client:
 
     def post(self, path: str, **kwargs):
         return self._call("post", path, **kwargs)
+
+
+def _validate_base_url(base_url: str) -> str:
+    """Validate the operator-supplied test target: http/https with an explicit
+    hostname, and loopback-only unless explicitly opted in via --allow-remote."""
+    from urllib.parse import urlparse
+
+    if not base_url:
+        return ""
+    parsed = urlparse(base_url.rstrip("/"))
+    if parsed.scheme not in ("http", "https"):
+        raise SystemExit(f"Unsupported URL scheme {parsed.scheme!r} — use http or https")
+    host = parsed.hostname
+    if not host:
+        raise SystemExit("Base URL must include a hostname")
+    loopback = host in ("localhost", "127.0.0.1", "::1") or host.endswith(".local")
+    if not loopback and "--allow-remote" not in sys.argv:
+        raise SystemExit(
+            f"Refusing non-loopback test target {host!r} by default (SSRF guard). "
+            "Pass --allow-remote to test a remote server."
+        )
+    return base_url.rstrip("/")
 
 
 def _check(status: int, body: dict, expect: int, label: str) -> dict:
@@ -231,6 +253,11 @@ def verify_marketplace(client: _Client, job: dict) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="PanDrop pipeline + marketplace test")
     parser.add_argument("--url", default="", help="Running server base URL (omit for in-process)")
+    parser.add_argument(
+        "--allow-remote",
+        action="store_true",
+        help="Permit a non-loopback --url target (SSRF guard defaults to localhost)",
+    )
     parser.add_argument("--video", default="", help="Existing video to test instead of generating one")
     args = parser.parse_args()
 

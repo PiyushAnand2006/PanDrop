@@ -195,8 +195,9 @@ export default function ListingDetail({
               </div>
             </div>
             <p className="border-t border-line pt-3 text-[12.5px] font-semibold text-faint italic">
-              Seller's claim: “{view.condition.spoken_claim}” — verified by the AI
-              visual audit above.
+              {view.condition.spoken_claim
+                ? `Seller's claim: “${view.condition.spoken_claim}” — verified by the AI visual audit above.`
+                : "Item detected visually by the AI — verified by the audit above."}
             </p>
           </div>
 

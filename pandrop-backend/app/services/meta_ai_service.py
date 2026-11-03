@@ -66,8 +66,11 @@ _REFUSAL_MARKERS = (
     "cannot access any audio",
     "no audio was actually attached",
     "no audio file was included",
+    "no audio recording was included",
     "please upload the audio",
     "upload the audio file",
+    "share the audio file",
+    "sorry, no audio",
     "can't actually listen",
     "cannot actually listen",
 )
@@ -77,7 +80,18 @@ def _looks_like_refusal(text: str) -> bool:
     """Detect the voice model's 'no audio attached' replies so we treat them
     as an empty transcript instead of transcribing the refusal itself."""
     lowered = (text or "").lower()
-    return any(marker in lowered for marker in _REFUSAL_MARKERS)
+    if any(marker in lowered for marker in _REFUSAL_MARKERS):
+        return True
+    # Generic catch-all: an assistant talking about audio delivery, not a
+    # transcript of spoken words.
+    if (
+        "audio" in lowered
+        and any(w in lowered for w in ("transcrib", "upload", "attach", "share", "included"))
+        and "$" not in lowered
+        and "dollar" not in lowered
+    ):
+        return True
+    return False
 
 
 class MetaAIService:
@@ -255,6 +269,74 @@ class MetaAIService:
             )
             return []
         return _heuristic_parse_items(text, transcript)
+
+    # ----------------------------------------------------------------- Wonder
+    async def detect_items_from_frames(
+        self, frame_paths: list[Path], frame_times: list[float]
+    ) -> list[DetectedItemIntent]:
+        """Vision-first fallback: identify sellable products directly in video
+        frames when the clip has no usable speech. Returns one intent per
+        distinct product, with a rough price estimate and a bbox in 0-1000
+        coordinates for the vision pipeline to refine."""
+        client = self._openai()
+        if client is None or not frame_paths:
+            return []
+        try:
+            content: list[dict] = [
+                {
+                    "type": "text",
+                    "text": (
+                        f"These are {len(frame_paths)} frames from one product video "
+                        "(in order, with their timestamps). List every distinct physical "
+                        "product a person could realistically sell that is clearly visible. "
+                        "Ignore people, walls and packaging text. Return ONLY a JSON array, "
+                        "one element per product: {\"name\": str, \"category\": str, "
+                        "\"estimated_price_usd\": number, \"best_frame_index\": int (0-based), "
+                        "\"bbox_0_1000\": [x_min, y_min, x_max, y_max] in 0-1000 coordinates of "
+                        "that frame, \"point_0_1000\": [x, y] inside the product}. "
+                        "If nothing sellable is visible, return []."
+                    ),
+                }
+            ]
+            for p in frame_paths:
+                content.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{encode_image_b64(Path(p))}"
+                        },
+                    }
+                )
+            resp = await client.chat.completions.create(
+                model=settings.muse_spark_model,
+                messages=[{"role": "user", "content": content}],
+                temperature=0.1,
+            )
+            raw = resp.choices[0].message.content or "[]"
+            logger.info("Vision-only detection raw response: %r", raw[:400])
+            data = _parse_json(raw)
+            intents: list[DetectedItemIntent] = []
+            seen: set[str] = set()
+            for d in data:
+                name = str(d.get("name", "")).strip()
+                if not name or name.lower() in seen:
+                    continue
+                seen.add(name.lower())
+                best_idx = int(d.get("best_frame_index", 0) or 0)
+                best_idx = max(0, min(best_idx, len(frame_paths) - 1))
+                intents.append(
+                    DetectedItemIntent(
+                        spoken_name=name[:80],
+                        asking_price=float(d.get("estimated_price_usd", 25.0) or 25.0),
+                        spoken_condition="",
+                        timestamp_sec=round(float(frame_times[best_idx]), 2),
+                        category=str(d.get("category", "General")).title()[:40],
+                    )
+                )
+            return intents
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Vision-only detection failed: %s", exc)
+            return []
 
     # ----------------------------------------------------------------- Wonder
     async def analyze_frames_and_audit_condition(

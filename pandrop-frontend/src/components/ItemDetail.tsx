@@ -126,9 +126,15 @@ export default function ItemDetail({
               <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-pink/30 bg-pink/[0.12] text-pink">
                 <Mic size={14} />
               </span>
-              <p className="text-[13.5px] font-semibold text-dim italic">
-                “{item.condition.spoken_claim}”
-              </p>
+              {item.condition.spoken_claim ? (
+                <p className="text-[13.5px] font-semibold text-dim italic">
+                  “{item.condition.spoken_claim}”
+                </p>
+              ) : (
+                <p className="text-[13.5px] font-semibold text-faint">
+                  No spoken claim — item was detected visually.
+                </p>
+              )}
             </div>
             <div className="flex items-start gap-3">
               <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-mint/40 bg-mint/[0.12] text-mint">

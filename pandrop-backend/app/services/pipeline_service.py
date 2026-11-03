@@ -131,6 +131,33 @@ async def _process_item(
     )
 
 
+def _extract_scan_frames(
+    video_path: Path, out_dir: Path, count: int = 3
+) -> tuple[list[Path], list[float]]:
+    """Grab `count` evenly spaced frames (with their timestamps) for
+    vision-only product detection when the clip has no usable speech."""
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        return [], []
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
+    fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
+    out_dir.mkdir(parents=True, exist_ok=True)
+    paths: list[Path] = []
+    times: list[float] = []
+    for i in range(count):
+        idx = int((i + 0.5) * total / count) if total > 0 else i
+        cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, idx))
+        ok, frame = cap.read()
+        if not ok:
+            continue
+        path = out_dir / f"scan_{i}.jpg"
+        cv2.imwrite(str(path), frame)
+        paths.append(path)
+        times.append(round(idx / fps, 2) if fps else 0.0)
+    cap.release()
+    return paths, times
+
+
 async def process_video(
     video_bytes: bytes, filename: str, user_id: str = ""
 ) -> JobResponse:
@@ -158,8 +185,24 @@ async def process_video(
 
     items = await meta.extract_items_from_transcript(transcript)
     if not items:
-        # Silent/music-only clips legitimately produce no items — complete the
-        # job anyway so the UI can show its guided empty state instead of an error.
+        # No usable speech (silent or music-only clip): fall back to vision-only
+        # extraction so products are still separated out of the video frames.
+        logger.warning(
+            "No items from speech for job %s; trying vision-only extraction", job_id
+        )
+        scan_paths, scan_times = _extract_scan_frames(
+            video_path, job_dir / "scan", count=3
+        )
+        if scan_paths:
+            items = await meta.detect_items_from_frames(scan_paths, scan_times)
+            logger.info(
+                "Vision-only extraction found %d item(s) for job %s",
+                len(items), job_id,
+            )
+    if not items:
+        # Truly nothing to extract (e.g. no products visible at all) — complete
+        # the job anyway so the UI can show its guided empty state instead of
+        # an error.
         logger.warning(
             "No sellable items detected for job %s; completing with empty item list",
             job_id,

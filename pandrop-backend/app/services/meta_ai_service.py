@@ -54,6 +54,27 @@ def _parse_json(text: str):
         raise
 
 
+_REFUSAL_MARKERS = (
+    "don't see an audio",
+    "do not see an audio",
+    "can't access any audio",
+    "cannot access any audio",
+    "no audio was actually attached",
+    "no audio file was included",
+    "please upload the audio",
+    "upload the audio file",
+    "can't actually listen",
+    "cannot actually listen",
+)
+
+
+def _looks_like_refusal(text: str) -> bool:
+    """Detect the voice model's 'no audio attached' replies so we treat them
+    as an empty transcript instead of transcribing the refusal itself."""
+    lowered = (text or "").lower()
+    return any(marker in lowered for marker in _REFUSAL_MARKERS)
+
+
 class MetaAIService:
     def __init__(self) -> None:
         self._client: AsyncOpenAI | None = None
@@ -142,6 +163,12 @@ class MetaAIService:
             temperature=0.0,
         )
         text = (resp.choices[0].message.content or "").strip()
+        if _looks_like_refusal(text):
+            # The gateway sometimes fails to attach the uploaded audio (preview
+            # infra is intermittent) — treat the model's refusal as "no speech"
+            # rather than transcribing the refusal itself.
+            logger.warning("Voice model reported no usable audio attachment: %r", text[:120])
+            return TranscriptResult(text="", duration_sec=0.0)
         return TranscriptResult(text=text, duration_sec=0.0)
 
     def _fallback_transcript(self, audio_path: Path) -> TranscriptResult:
@@ -200,18 +227,13 @@ class MetaAIService:
     def _fallback_extract_items(self, transcript: TranscriptResult) -> list[DetectedItemIntent]:
         text = (transcript.text or "").strip()
         if not text:
-            # No speech available (e.g. silent sample video): single generic item
-            # centred mid-video so the vision pipeline still demonstrates.
-            dur = transcript.duration_sec or 6.0
-            return [
-                DetectedItemIntent(
-                    spoken_name="Featured item",
-                    asking_price=50.0,
-                    spoken_condition="good condition",
-                    timestamp_sec=round(dur / 2, 2),
-                    category="General",
-                )
-            ]
+            # No usable speech (silent clip, music-only footage, or the voice
+            # model could not attach the audio). Return no items so the job
+            # completes with an honest empty state instead of a fake listing.
+            logger.warning(
+                "No usable transcript — completing job without detected items"
+            )
+            return []
         return _heuristic_parse_items(text, transcript)
 
     # ----------------------------------------------------------------- Wonder

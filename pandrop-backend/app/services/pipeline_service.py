@@ -158,7 +158,12 @@ async def process_video(
 
     items = await meta.extract_items_from_transcript(transcript)
     if not items:
-        raise ValueError("No sellable items could be detected from the video audio")
+        # Silent/music-only clips legitimately produce no items — complete the
+        # job anyway so the UI can show its guided empty state instead of an error.
+        logger.warning(
+            "No sellable items detected for job %s; completing with empty item list",
+            job_id,
+        )
 
     # Fan out: all item workers run concurrently.
     results = await asyncio.gather(

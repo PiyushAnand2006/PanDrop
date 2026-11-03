@@ -8,6 +8,7 @@ import {
   Copy,
   Check,
   PackageOpen,
+  Pencil,
   Store,
   UploadCloud,
   Zap,
@@ -164,7 +165,6 @@ function PublishRow({
   price,
   title,
   onToggle,
-  onPrice,
   onTitle,
 }: {
   item: ShowcaseItem;
@@ -172,7 +172,6 @@ function PublishRow({
   price: string;
   title: string;
   onToggle: () => void;
-  onPrice: (v: string) => void;
   onTitle: (v: string) => void;
 }) {
   return (
@@ -218,17 +217,7 @@ function PublishRow({
       {item.is_published ? (
         <PriceTag formatted={item.price.formatted} size="md" />
       ) : (
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-[13px] font-bold text-faint">$</span>
-          <input
-            type="number"
-            min={0}
-            value={price}
-            onChange={(e) => onPrice(e.target.value)}
-            aria-label={`Price for ${item.spoken_name}`}
-            className="w-20 rounded-lg border border-line bg-black/25 px-2.5 py-1.5 font-mono text-[13.5px] font-bold text-ink outline-none transition focus:border-pink/50"
-          />
-        </div>
+        <PriceTag formatted={`$${price || "0"}`} size="md" />
       )}
     </label>
   );
@@ -533,6 +522,8 @@ function StudioResult({
                     item={item}
                     index={i}
                     active={activeItem?.item_id === item.item_id}
+                    price={draftPrice[item.item_id] ?? ""}
+                    onPrice={(v) => setDraftPrice((s) => ({ ...s, [item.item_id]: v }))}
                     onOpen={openItem}
                   />
                 ))}
@@ -560,6 +551,11 @@ function StudioResult({
                   Post to marketplace
                 </SectionLabel>
 
+                <p className="mb-4 rounded-xl border border-pink/25 bg-pink/[0.06] px-4 py-3 text-[13px] font-semibold text-[#F9A8D4]">
+                  Edit the price directly on each card above (the amber tag), tweak the
+                  title here if you like, then post.
+                </p>
+
                 {isDemo && (
                   <p className="mb-4 rounded-xl border border-gold/40 bg-gold/[0.08] px-4 py-3 text-[13px] font-semibold text-[#FCD34D]">
                     This is the bundled sample job — drop your own video to post live
@@ -578,7 +574,6 @@ function StudioResult({
                       onToggle={() =>
                         setSelected((s) => ({ ...s, [item.item_id]: !s[item.item_id] }))
                       }
-                      onPrice={(v) => setDraftPrice((s) => ({ ...s, [item.item_id]: v }))}
                       onTitle={(v) => setDraftTitle((s) => ({ ...s, [item.item_id]: v }))}
                     />
                   ))}
@@ -633,18 +628,43 @@ function StudioResult({
   );
 }
 
-/* compact review card — slimmer than the discovery card, wired to the lab */
+/* compact review card — slimmer than the discovery card, wired to the lab.
+   The price tag is editable inline until the item is posted. */
 function ItemReviewCard({
   item,
   index,
   active,
+  price,
+  onPrice,
   onOpen,
 }: {
   item: ShowcaseItem;
   index: number;
   active: boolean;
+  price: string;
+  onPrice: (v: string) => void;
   onOpen: (item: ShowcaseItem) => void;
 }) {
+  const priceInput = (
+    <span
+      className="price-chip inline-flex items-center gap-0.5 rounded-lg px-2 py-1 font-mono text-[13px] font-bold"
+      title="Type to edit the asking price"
+    >
+      <span>$</span>
+      <input
+        type="number"
+        min={0}
+        value={price}
+        onChange={(e) => onPrice(e.target.value)}
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+        aria-label={`Asking price for ${item.spoken_name}`}
+        placeholder="0"
+        className="w-14 bg-transparent text-[13px] font-bold text-[#1a1005] outline-none placeholder:text-[#1a1005]/50 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+      />
+      <Pencil size={11} className="opacity-60" />
+    </span>
+  );
   return (
     <motion.button
       layout
@@ -676,7 +696,11 @@ function ItemReviewCard({
           {formatShortTime(item.timestamp_sec)}
         </span>
         <span className="absolute top-3 right-3">
-          <PriceTag formatted={item.price.formatted} size="sm" />
+          {item.is_published ? (
+            <PriceTag formatted={item.price.formatted} size="sm" />
+          ) : (
+            priceInput
+          )}
         </span>
         {item.is_published && (
           <span className="absolute bottom-3 left-3 inline-flex items-center gap-1.5 rounded-full border border-mint/45 bg-mint/20 px-2.5 py-1 text-[11px] font-bold text-[#6EE7B7] backdrop-blur-sm">

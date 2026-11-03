@@ -796,6 +796,7 @@ export default function Studio({
         <Processing
           task={runTask}
           accelerated={isDemo}
+          live={mockAI === false}
           fileName={fileName}
           onDone={(j) => {
             setTask(null);

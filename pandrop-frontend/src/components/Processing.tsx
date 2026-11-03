@@ -1,14 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { AlertTriangle, Check, Loader2, RotateCcw } from "lucide-react";
+import { AlertTriangle, Check, Loader2, RotateCcw, Sparkles } from "lucide-react";
 import type { JobResponse } from "../types/pandrop";
 import { STAGES, STAGE_TOTAL_MS } from "../lib/stages";
 
 const TICK_MS = 90;
 
+/** Rotating hints shown while the live models finish their work. */
+const LIVE_HINTS = [
+  "Transcribing your audio with Muse Voice…",
+  "Detecting products across the video frames…",
+  "Auditing each item's real condition…",
+  "Compositing studio showcases with Muse Image…",
+  "Writing your listing copy…",
+];
+
 export default function Processing({
   task,
   accelerated,
+  live,
   fileName,
   onDone,
   onCancel,
@@ -16,19 +26,26 @@ export default function Processing({
   task: () => Promise<JobResponse>;
   /** Demo preset: compress the schedule into a short cinematic run. */
   accelerated: boolean;
+  /** Live Meta models — the pipeline legitimately takes a few minutes. */
+  live: boolean;
   fileName: string | null;
   onDone: (job: JobResponse) => void;
   onCancel: () => void;
 }) {
-  // Real pipeline: stretch the schedule to ~13s, then hold on the final stage.
-  const speed = accelerated ? 0.42 : 2.6;
-  const total = useMemo(() => STAGE_TOTAL_MS * speed, [speed]);
+  // Schedule length matches reality: demo ~2s, offline ~12s, live ~3.5 min.
+  const total = useMemo(() => {
+    if (accelerated) return STAGE_TOTAL_MS * 0.42;
+    if (live) return 210_000;
+    return STAGE_TOTAL_MS * 2.6;
+  }, [accelerated, live]);
+  const speed = useMemo(() => total / STAGE_TOTAL_MS, [total]);
 
   const [elapsed, setElapsed] = useState(0);
   const [progress, setProgress] = useState(0);
   const [stageIdx, setStageIdx] = useState(-1);
   const [error, setError] = useState<string | null>(null);
   const [finished, setFinished] = useState(false);
+  const [hintIdx, setHintIdx] = useState(0);
   const startRef = useRef(Date.now());
 
   useEffect(() => {
@@ -52,6 +69,13 @@ export default function Processing({
     }, TICK_MS);
     return () => clearInterval(id);
   }, [total, speed, error, finished]);
+
+  // rotate the live-mode hints while the schedule is exhausted
+  useEffect(() => {
+    if (!live || accelerated) return;
+    const id = setInterval(() => setHintIdx((i) => i + 1), 9_000);
+    return () => clearInterval(id);
+  }, [live, accelerated]);
 
   // the real task
   useEffect(() => {
@@ -111,6 +135,17 @@ export default function Processing({
               style={{ boxShadow: "0 0 14px rgba(236,72,153,0.5)" }}
             />
           </div>
+          {live && !accelerated && (
+            <div className="mt-4 flex items-center gap-2.5 rounded-xl border border-pink/25 bg-pink/[0.06] px-4 py-3">
+              <Sparkles size={15} className="shrink-0 text-pink" />
+              <p className="text-[13px] font-semibold text-[#F9A8D4]">
+                {LIVE_HINTS[hintIdx % LIVE_HINTS.length]}
+                <span className="ml-2 font-normal text-faint">
+                  Live models can take 2–4 minutes for multi-item videos.
+                </span>
+              </p>
+            </div>
+          )}
         </div>
 
         {/* stages */}

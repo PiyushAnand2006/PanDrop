@@ -150,8 +150,13 @@ def _extract_scan_frames(
         ok, frame = cap.read()
         if not ok:
             continue
+        # Downscale oversized frames — smaller base64 payloads make the vision
+        # model calls several times faster with no accuracy loss at 1024px.
+        h, w = frame.shape[:2]
+        if w > 1024:
+            frame = cv2.resize(frame, (1024, int(h * 1024 / w)), interpolation=cv2.INTER_AREA)
         path = out_dir / f"scan_{i}.jpg"
-        cv2.imwrite(str(path), frame)
+        cv2.imwrite(str(path), frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
         paths.append(path)
         times.append(round(idx / fps, 2) if fps else 0.0)
     cap.release()

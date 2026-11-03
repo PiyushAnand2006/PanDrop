@@ -152,7 +152,7 @@ class MetaAIService:
             # Audio attachment on the preview gateway is intermittent, so retry
             # a few times before giving up on speech.
             last_exc: Exception | None = None
-            for attempt in range(3):
+            for attempt in range(2):
                 try:
                     return await self._transcribe_via_chat(audio_path, client)
                 except AudioNotAttachedError as exc:
@@ -161,12 +161,12 @@ class MetaAIService:
                         "Transcription attempt %d: gateway did not attach the audio",
                         attempt + 1,
                     )
-                    await asyncio.sleep(3)
+                    await asyncio.sleep(2)
                 except Exception as exc:  # noqa: BLE001
                     last_exc = exc
                     if not self._should_fallback(exc):
                         raise
-                    await asyncio.sleep(3)
+                    await asyncio.sleep(2)
             logger.warning(
                 "Audio attachment never succeeded after retries (%s); continuing without speech",
                 last_exc,

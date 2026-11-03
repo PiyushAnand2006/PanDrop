@@ -1,8 +1,21 @@
-# PanDrop Frontend — Point. Talk. Sold.
+# PanDrop Frontend — Point. Talk. Sell & Discover.
 
-High-craft, dark-mode-first **AI Video-to-Showcase E-Commerce Studio** for the Meta Global AI Developer Hackathon. Drop a product video, talk about your items, and PanDrop segments each product (SAM 3.1), audits its condition, and composes listing-ready studio imagery with the price burned in.
+High-craft, dark-mode-first **AI Video-to-Showcase P2P Marketplace** for the Meta Global AI Developer Hackathon. Drop a product video, talk about your items, and PanDrop segments each product (SAM 3.1), audits its condition, composes studio imagery with the price burned in — then posts it to a unified two-sided marketplace where any account can discover, inspect and buy it.
 
 **Stack:** Vite · React 18 · TypeScript · Tailwind CSS v4 · Framer Motion · Lucide React
+
+## The three views
+
+| View | What happens there |
+|---|---|
+| **Discover & Search** | Marketplace feed with search, category pills, price + AI-condition filters. Click a card to inspect authenticity (raw frame → SAM 3.1 mask → cutout → studio shot → price tag) and **Buy now** with wallet balance. |
+| **AI Sell Studio** | Drop a room-scan video → the Meta AI pipeline extracts items → tweak prices/titles → **Post to Marketplace**. |
+| **My Account Hub** | Active listings, sold items + earnings, purchases, and every past extraction job (re-openable in the studio). |
+
+**Unified accounts:** the top-bar switcher (avatar · name · live wallet balance) flips the
+entire app between accounts in one click — the demo loop is *post as Alex → switch to
+Maya → search → inspect → buy*. Seeded accounts (Alex / Maya / Sam, $500 wallets) plus
+two sample listings come from the backend on first load.
 
 ---
 
@@ -58,10 +71,12 @@ src/
 
 ### Backend contract
 
-- `POST /api/v1/process-video` (multipart `file`) → `JobResponse` (synchronous pipeline)
-- `GET  /api/v1/jobs/{job_id}` → `JobResponse`
-- `GET  /api/v1/health` → `{ status, service, mock_ai, version }`
-- `GET  /static/…` → job artifacts
+- `POST /api/v1/process-video` (multipart `file` + `user_id`) → `JobResponse` (sync pipeline, saved to the account)
+- `GET/POST /api/v1/users`, `GET /api/v1/users/{id}/dashboard` → unified accounts
+- `POST /api/v1/marketplace/publish` → post extracted items (with price/title overrides)
+- `GET /api/v1/marketplace/listings?q&category&min_price&max_price&min_condition&status` → discovery feed
+- `POST /api/v1/marketplace/{listing_id}/buy` → wallet-based purchase
+- `GET /static/…` → job + seed artifacts
 
 All relative asset paths returned by the backend (`/static/jobs/…`) are resolved through
 `resolveAssetUrl()` against `API_BASE` (`VITE_API_BASE_URL` || `http://localhost:8000`),

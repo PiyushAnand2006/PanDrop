@@ -1,119 +1,148 @@
 import { useCallback, useEffect, useState } from "react";
-import type { JobResponse } from "./types/pandrop";
-import { checkHealth, processVideo } from "./lib/api";
-import { buildDemoJob } from "./lib/demoJob";
+import type { JobResponse, MarketplaceListing, UserAccount } from "./types/pandrop";
+import { getUser, listUsers } from "./lib/api";
 import Atmosphere from "./components/Atmosphere";
-import TopBar, { type BackendState } from "./components/TopBar";
-import Landing from "./components/Landing";
-import Processing from "./components/Processing";
+import TopBar, { type View } from "./components/TopBar";
+import { CreateAccountModal } from "./components/AccountMenu";
+import Discover from "./components/Discover";
 import Studio from "./components/Studio";
-
-type View = "landing" | "processing" | "studio";
+import AccountHub from "./components/AccountHub";
+import ListingDetail from "./components/ListingDetail";
 
 export default function App() {
-  const [view, setView] = useState<View>("landing");
-  const [job, setJob] = useState<JobResponse | null>(null);
-  const [isDemo, setIsDemo] = useState(false);
-  const [fileName, setFileName] = useState<string | null>(null);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const [task, setTask] = useState<(() => Promise<JobResponse>) | null>(null);
-  const [backend, setBackend] = useState<BackendState>("checking");
+  const [users, setUsers] = useState<UserAccount[]>([]);
+  const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
+  const [view, setView] = useState<View>("discover");
+  const [studioJob, setStudioJob] = useState<JobResponse | null>(null);
+  const [walletVersion, setWalletVersion] = useState(0);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [openListing, setOpenListing] = useState<MarketplaceListing | null>(null);
 
-  /* ---------------- backend liveness ---------------- */
+  /* ---------------- accounts ---------------- */
   useEffect(() => {
     let alive = true;
-    const probe = async () => {
-      try {
-        await checkHealth();
-        if (alive) setBackend("online");
-      } catch {
-        if (alive) setBackend("offline");
-      }
-    };
-    void probe();
-    const id = setInterval(probe, 30_000);
+    listUsers()
+      .then((us) => {
+        if (!alive) return;
+        setUsers(us);
+        // default to the first seeded account until the judge switches
+        setCurrentUser((cur) => cur ?? us[0] ?? null);
+      })
+      .catch(() => alive && setUsers([]));
     return () => {
       alive = false;
-      clearInterval(id);
     };
+  }, [walletVersion]);
+
+  const refreshUser = useCallback(
+    async (id: string) => {
+      try {
+        const u = await getUser(id);
+        setCurrentUser(u);
+        setUsers((us) => us.map((x) => (x.user_id === id ? u : x)));
+      } catch {
+        /* keep the stale copy */
+      }
+    },
+    [],
+  );
+
+  const handlePurchased = useCallback(() => {
+    setWalletVersion((v) => v + 1);
+    if (currentUser) void refreshUser(currentUser.user_id);
+  }, [currentUser, refreshUser]);
+
+  const handlePublished = useCallback(() => {
+    setWalletVersion((v) => v + 1);
   }, []);
 
-  /* ---------------- flows ---------------- */
-  const handleFile = useCallback((file: File) => {
-    setUploadError(null);
-    setIsDemo(false);
-    setFileName(file.name);
-    // Start the request eagerly so StrictMode double-mount can't double-POST.
-    const promise = processVideo(file);
-    promise.catch(() => {}); // Processing view owns the surfaced error
-    setTask(() => () => promise);
-    setView("processing");
-  }, []);
+  const handleCreated = useCallback(
+    (user: UserAccount) => {
+      setUsers((us) => [...us, user]);
+      setCurrentUser(user);
+      setCreateOpen(false);
+    },
+    [],
+  );
 
-  const handleDemo = useCallback(() => {
-    setUploadError(null);
-    setIsDemo(true);
-    setFileName(null);
-    const promise = new Promise<JobResponse>((resolve) =>
-      setTimeout(() => resolve(buildDemoJob()), 180),
-    );
-    setTask(() => () => promise);
-    setView("processing");
-  }, []);
-
-  const handleDone = useCallback((result: JobResponse) => {
-    setJob(result);
-    // isDemo was already set by the entry flow (handleDemo/handleFile);
-    // the demo job keeps its real backend job id, so don't second-guess it here.
+  /* ---------------- navigation helpers ---------------- */
+  const openJobInStudio = useCallback((job: JobResponse) => {
+    setStudioJob(job);
     setView("studio");
-    window.scrollTo({ top: 0 });
   }, []);
-
-  const handleReset = useCallback(() => {
-    setView("landing");
-    setJob(null);
-    setIsDemo(false);
-    setTask(null);
-    setUploadError(null);
-    window.scrollTo({ top: 0 });
-  }, []);
-
-  const runTask = useCallback(() => (task ? task() : Promise.reject(new Error("no task"))), [task]);
 
   return (
-    <div className="relative min-h-screen bg-obsidian text-ink">
+    <div className="relative min-h-screen bg-base text-ink">
       <Atmosphere />
       <TopBar
-        backend={backend}
-        isDemo={isDemo}
-        inStudio={view === "studio"}
-        onReset={handleReset}
+        view={view}
+        onNavigate={(v) => {
+          setView(v);
+          window.scrollTo({ top: 0 });
+        }}
+        users={users}
+        currentUser={currentUser}
+        onSelectUser={(u) => setCurrentUser(u)}
+        onCreateUser={() => setCreateOpen(true)}
       />
 
-      <div>
-        {view === "landing" && (
-          <Landing
-            onFile={handleFile}
-            onDemo={handleDemo}
-            backend={backend}
-            initialError={uploadError}
-          />
-        )}
+      {view === "discover" && (
+        <Discover walletVersion={walletVersion} onOpenListing={setOpenListing} />
+      )}
 
-        {view === "processing" && task && (
-          <Processing
-            task={runTask}
-            accelerated={isDemo}
-            fileName={fileName}
-            onDone={handleDone}
-            onCancel={handleReset}
-          />
-        )}
+      {view === "studio" && (
+        <Studio
+          user={currentUser}
+          job={studioJob}
+          onJob={setStudioJob}
+          onGoDiscover={() => {
+            setView("discover");
+            window.scrollTo({ top: 0 });
+          }}
+          onPublished={handlePublished}
+        />
+      )}
 
-        {view === "studio" && job && (
-          <Studio job={job} isDemo={isDemo} onReset={handleReset} />
-        )}
-      </div>
+      {view === "account" &&
+        (currentUser ? (
+          <AccountHub
+            user={currentUser}
+            walletVersion={walletVersion}
+            onUserRefreshed={(u) => setCurrentUser(u)}
+            onOpenListing={setOpenListing}
+            onOpenJob={openJobInStudio}
+          />
+        ) : (
+          <div className="mx-auto max-w-lg px-6 pt-40 text-center">
+            <p className="font-display text-[18px] font-semibold text-ink">
+              No account selected
+            </p>
+            <p className="mt-2 text-[14.5px] text-mute">
+              Start the backend (or create an account from the top-bar switcher) to open
+              your hub.
+            </p>
+          </div>
+        ))}
+
+      {/* shared listing inspector */}
+      {openListing && (
+        <ListingDetail
+          listing={openListing}
+          currentUserId={currentUser?.user_id ?? ""}
+          onClose={() => setOpenListing(null)}
+          onPurchased={(updated) => {
+            setOpenListing(updated);
+            handlePurchased();
+          }}
+        />
+      )}
+
+      {createOpen && (
+        <CreateAccountModal
+          onClose={() => setCreateOpen(false)}
+          onCreated={handleCreated}
+        />
+      )}
     </div>
   );
 }

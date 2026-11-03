@@ -24,9 +24,11 @@ export function buildDemoJob(): JobResponse {
   if (cached) return cached;
   cached = {
     job_id: "job_2be39738",
+    user_id: "",
     status: "completed",
     video_url: `${SRC}/sample.mp4`,
     duration_sec: 6.0,
+    created_at: "",
     transcript:
       "Selling these Sony headphones for 100 dollars, barely used, and this mechanical keyboard for 40 dollars, good condition",
     items: [
@@ -47,6 +49,8 @@ export function buildDemoJob(): JobResponse {
         description:
           'Sony headphones in barely used. AI condition audit: 8.5/10. "Sony headphones" is centred and in focus in the selected frame (sharpness 522.4). No major visible damage detected by the offline audit. Priced at $100. Ships as shown in the studio showcase photo.',
         bounding_box: [144, 108, 496, 372],
+        is_published: false,
+        published_listing_id: null,
         tags: ["sony", "headphones", "general"],
         assets: {
           raw_frame_url: `${SRC}/item_1/raw_frame.jpg`,
@@ -73,6 +77,8 @@ export function buildDemoJob(): JobResponse {
         description:
           'mechanical keyboard in good condition. AI condition audit: 8.5/10. "mechanical keyboard" is centred and in focus in the selected frame (sharpness 522.4). No major visible damage detected by the offline audit. Priced at $40. Ships as shown in the studio showcase photo.',
         bounding_box: [144, 108, 496, 372],
+        is_published: false,
+        published_listing_id: null,
         tags: ["mechanical", "keyboard", "general"],
         assets: {
           raw_frame_url: `${SRC}/item_2/raw_frame.jpg`,

@@ -1,21 +1,19 @@
 import { useEffect, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
 import {
   Check,
   ChevronLeft,
   ChevronRight,
   Copy,
-  Download,
   ListPlus,
   Mic,
   ShieldCheck,
   X,
 } from "lucide-react";
 import type { AssetStageKey, ShowcaseItem } from "../types/pandrop";
-import { ASSET_STAGES, assetUrlFor } from "../types/pandrop";
-import { resolveAssetUrl } from "../lib/api";
-import { bboxReadout, copyText, formatTimecode, scoreTone } from "../lib/format";
-import { Chip, PriceTag, SectionLabel } from "./atoms";
+import { copyText } from "../lib/format";
+import { PriceTag, SectionLabel } from "./atoms";
+import AssetStageViewer from "./AssetStageViewer";
 
 function CopyButton({ text, label }: { text: string; label: string }) {
   const [ok, setOk] = useState(false);
@@ -60,10 +58,6 @@ export default function ItemDetail({
     return () => window.removeEventListener("keydown", onKey);
   }, [idx, items, onClose, onNavigate]);
 
-  const tone = scoreTone(item.condition.ai_score);
-  const scoreColor =
-    tone === "high" ? "text-mint" : tone === "mid" ? "text-[#F9A8D4]" : "text-gold";
-
   return (
     <motion.div
       initial={{ opacity: 0.92 }}
@@ -82,98 +76,11 @@ export default function ItemDetail({
         onClick={(e) => e.stopPropagation()}
         className="ring-glow grid max-h-[92vh] w-full max-w-6xl grid-cols-1 overflow-hidden rounded-3xl bg-surface shadow-panel lg:grid-cols-[1.12fr_0.88fr]"
       >
-        {/* ------------------------------------------------------ */}
-        {/* Left: stage viewer                                      */}
-        {/* ------------------------------------------------------ */}
-        <div className="flex min-w-0 flex-col border-b border-line lg:border-r lg:border-b-0">
-          {/* stage tabs */}
-          <div className="flex items-stretch overflow-x-auto border-b border-line bg-base/40">
-            {ASSET_STAGES.map((s, i) => {
-              const active = s.key === stage;
-              return (
-                <button
-                  key={s.key}
-                  onClick={() => setStage(s.key)}
-                  title={s.hint}
-                  className={`relative flex min-w-fit flex-1 cursor-pointer items-center gap-2 px-3.5 py-3.5 text-[12px] font-bold whitespace-nowrap transition-colors ${
-                    active ? "text-ink" : "text-faint hover:text-dim"
-                  }`}
-                >
-                  <span
-                    className={`font-mono text-[10.5px] font-semibold ${active ? "text-pink" : "text-faint"}`}
-                  >
-                    {i + 1}
-                  </span>
-                  {s.label}
-                  {active && (
-                    <motion.span
-                      layoutId="stage-underline"
-                      className="brand-gradient absolute inset-x-3 bottom-0 h-0.5 rounded-full"
-                    />
-                  )}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* viewer */}
-          <div className="checker-bg relative aspect-[4/3] w-full overflow-hidden bg-black/40">
-            <AnimatePresence mode="sync">
-              <motion.img
-                key={`${item.item_id}-${stage}`}
-                src={resolveAssetUrl(assetUrlFor(item, stage))}
-                alt={`${item.spoken_name} — ${stage}`}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.28 }}
-                className="absolute inset-0 h-full w-full object-contain"
-                draggable={false}
-              />
-            </AnimatePresence>
-            <AnimatePresence mode="sync">
-              <motion.div
-                key={`sweep-${item.item_id}-${stage}`}
-                initial={{ x: "-30%" }}
-                animate={{ x: "430%" }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.85, ease: "easeInOut" }}
-                className="pointer-events-none absolute inset-y-0 w-1/4 bg-gradient-to-r from-transparent via-pink/15 to-transparent"
-              />
-            </AnimatePresence>
-            <span className="absolute top-3 left-3 rounded-full bg-black/60 px-3 py-1 text-[11.5px] font-bold text-white/90 backdrop-blur-sm">
-              {ASSET_STAGES.find((s) => s.key === stage)?.label}
-            </span>
-          </div>
-
-          {/* telemetry row */}
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 border-t border-line px-5 py-3.5 font-mono text-[11px] font-semibold text-faint">
-            <span>
-              T+<span className="text-dim">{formatTimecode(item.timestamp_sec)}</span>
-            </span>
-            <span>
-              BBOX <span className="text-dim">{bboxReadout(item.bounding_box)}</span>
-            </span>
-            <span>
-              SCORE <span className={scoreColor}>{item.condition.ai_score.toFixed(1)}</span>
-            </span>
-            <a
-              href={resolveAssetUrl(assetUrlFor(item, stage))}
-              download={`${item.item_id}_${stage}.png`}
-              onClick={(e) => {
-                const url = resolveAssetUrl(assetUrlFor(item, stage));
-                if (url.startsWith("http")) {
-                  e.preventDefault();
-                  window.open(url, "_blank");
-                }
-              }}
-              className="ml-auto inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.05] px-2.5 py-1.5 text-mute transition hover:border-pink/45 hover:text-ink"
-            >
-              <Download size={13} />
-              PNG
-            </a>
-          </div>
-        </div>
+        <AssetStageViewer
+          source={item}
+          stage={stage}
+          onStageChange={setStage}
+        />
 
         {/* ------------------------------------------------------ */}
         {/* Right: listing intel                                    */}
@@ -197,14 +104,19 @@ export default function ItemDetail({
             </button>
           </div>
 
-          {/* price */}
-          <div className="mb-6 flex items-center gap-3.5">
+          {/* price + publish state */}
+          <div className="mb-6 flex flex-wrap items-center gap-3.5">
             <PriceTag formatted={item.price.formatted} size="lg" />
             <div className="text-[12px] font-bold leading-relaxed text-faint">
-              Asking price
+              Extracted price
               <br />
               <span className="text-mute">{item.price.currency}</span>
             </div>
+            {item.is_published && (
+              <span className="ml-auto rounded-full border border-mint/40 bg-mint/[0.12] px-3 py-1.5 text-[12px] font-bold text-[#6EE7B7]">
+                Posted to marketplace
+              </span>
+            )}
           </div>
 
           {/* condition audit */}
@@ -244,28 +156,18 @@ export default function ItemDetail({
           </SectionLabel>
           <p className="mb-5 text-[14px] leading-relaxed text-mute">{item.description}</p>
 
-          {item.tags && item.tags.length > 0 && (
-            <>
-              <SectionLabel>Tags</SectionLabel>
-              <div className="mb-6 flex flex-wrap gap-2">
-                {item.tags.map((t) => (
-                  <Chip key={t} tone="neutral">
-                    #{t}
-                  </Chip>
-                ))}
-              </div>
-            </>
-          )}
-
           {/* actions */}
           <div className="flex flex-wrap items-center gap-3 border-t border-line pt-5">
-            <button className="btn-primary !px-4 !py-2.5 !text-[13.5px]">
-              <ListPlus size={15} />
-              List to marketplace
-            </button>
-            <span className="text-[11.5px] font-bold text-faint">
-              Demo action — connect an adapter
-            </span>
+            {!item.is_published ? (
+              <button className="btn-primary !px-4 !py-2.5 !text-[13.5px]">
+                <ListPlus size={15} />
+                Post to marketplace
+              </button>
+            ) : (
+              <span className="text-[12.5px] font-bold text-faint">
+                Published as {item.published_listing_id}
+              </span>
+            )}
           </div>
 
           {/* prev / next */}

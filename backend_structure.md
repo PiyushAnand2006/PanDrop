@@ -1,22 +1,23 @@
 pandrop-backend/
-├── .env.example                 # Environment variables template
-├── requirements.txt             # Python dependencies
-├── README.md                    # Backend setup & API documentation
+├── .env.example
+├── requirements.txt
+├── README.md
 ├── app/
 │   ├── __init__.py
-│   ├── main.py                  # FastAPI app, CORS, StaticFiles, Routes
-│   ├── config.py                # Pydantic Settings (API keys, URLs, flags)
-│   ├── schemas.py               # Strict Pydantic request/response models
+│   ├── config.py
+│   ├── schemas.py               # Unified Account, Extraction Job, & Marketplace schemas
+│   ├── main.py                  # FastAPI routes for Accounts, Extraction Jobs, & Marketplace
 │   ├── services/
 │   │   ├── __init__.py
-│   │   ├── media_service.py     # FFmpeg audio extraction & frame sampling
-│   │   ├── meta_ai_service.py   # Clients for Muse Voice, Spark, Wonder, SAM 3.1, Muse Image
-│   │   ├── compositor_service.py# OpenCV/Pillow mask cutout, shadow, studio composite & price tag
-│   │   └── pipeline_service.py  # Orchestrates the end-to-end async workflow
+│   │   ├── store_service.py     # Persistent JSON/SQLite store for Accounts, Listings & Orders
+│   │   ├── media_service.py     # FFmpeg/OpenCV audio & frame extraction
+│   │   ├── meta_ai_service.py   # Muse Voice, Spark, Wonder, SAM 3.1, Muse Image clients
+│   │   ├── compositor_service.py# Real object cutout, HUD mask, studio showcase & price tag
+│   │   └── pipeline_service.py  # Async orchestrator for video-to-showcase extraction
 │   └── utils/
 │       ├── __init__.py
-│       └── image_utils.py       # Base64 encoding/decoding, bbox scaling, RGBA helpers
+│       └── image_utils.py
 ├── static/
-│   └── jobs/                    # Auto-generated per job: /static/jobs/{job_id}/...
+│   └── jobs/                    # Served at /static/jobs/{job_id}/...
 └── tests/
-    └── test_pipeline.py         # CLI script to test pipeline on a sample video
+    └── generate_sample_and_test.py

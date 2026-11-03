@@ -6,6 +6,7 @@ local implementation that operates on the real video frames.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
@@ -34,6 +35,10 @@ from app.utils.image_utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class AudioNotAttachedError(Exception):
+    """The voice model did not receive the uploaded audio (gateway is intermittent)."""
 
 
 def _strip_json_fences(text: str) -> str:
@@ -130,11 +135,28 @@ class MetaAIService:
                 )
             # The gateway serves audio transcription through the multimodal chat
             # model: upload the clip to /v1/files, then ask Muse to transcribe it.
-            try:
-                return await self._transcribe_via_chat(audio_path, client)
-            except Exception as exc:  # noqa: BLE001
-                if not self._should_fallback(exc):
-                    raise
+            # Audio attachment on the preview gateway is intermittent, so retry
+            # a few times before giving up on speech.
+            last_exc: Exception | None = None
+            for attempt in range(3):
+                try:
+                    return await self._transcribe_via_chat(audio_path, client)
+                except AudioNotAttachedError as exc:
+                    last_exc = exc
+                    logger.warning(
+                        "Transcription attempt %d: gateway did not attach the audio",
+                        attempt + 1,
+                    )
+                    await asyncio.sleep(3)
+                except Exception as exc:  # noqa: BLE001
+                    last_exc = exc
+                    if not self._should_fallback(exc):
+                        raise
+                    await asyncio.sleep(3)
+            logger.warning(
+                "Audio attachment never succeeded after retries (%s); continuing without speech",
+                last_exc,
+            )
         return self._fallback_transcript(audio_path)
 
     async def _transcribe_via_chat(self, audio_path: Path, client: AsyncOpenAI) -> TranscriptResult:
@@ -165,10 +187,8 @@ class MetaAIService:
         text = (resp.choices[0].message.content or "").strip()
         if _looks_like_refusal(text):
             # The gateway sometimes fails to attach the uploaded audio (preview
-            # infra is intermittent) — treat the model's refusal as "no speech"
-            # rather than transcribing the refusal itself.
-            logger.warning("Voice model reported no usable audio attachment: %r", text[:120])
-            return TranscriptResult(text="", duration_sec=0.0)
+            # infra is intermittent) — signal the caller to retry.
+            raise AudioNotAttachedError(text[:160])
         return TranscriptResult(text=text, duration_sec=0.0)
 
     def _fallback_transcript(self, audio_path: Path) -> TranscriptResult:

@@ -1,9 +1,16 @@
-# PanDrop Backend — Point, Talk, Sell
+# PanDrop Backend — Point, Talk, Sell & Discover
 
-FastAPI backend that turns a short pan-and-talk video into studio showcase
-cards: Muse Voice transcription → Muse Spark item/price extraction →
-Muse Wonder frame selection + condition audit → SAM 3.1 real-object
-segmentation → Muse Image studio backdrop + Pillow compositing.
+FastAPI backend for a unified AI video-to-showcase P2P marketplace.
+Every account can both sell (extract) and buy:
+
+- **Extract:** Muse Voice transcription → Muse Spark item/price extraction →
+  Muse Wonder frame selection + condition audit → SAM 3.1 real-object
+  segmentation → Muse Image studio backdrop + Pillow compositing.
+- **Marketplace:** unified accounts with wallets, publish extracted items,
+  discovery feed with search/filters, authenticity inspection, instant buy.
+
+Persistent store: `data/marketplace_db.json`, pre-seeded with demo accounts
+(`@alex_chen`, `@maya_lin`, `@sam_parker`, $500 wallets) and initial listings.
 
 ## Setup
 
@@ -28,21 +35,24 @@ Open http://localhost:8000/docs for interactive API docs.
 
 ## API
 
+Uploads accept multipart `file` (`.mp4`, `.mov`, `.webm`) plus an optional
+`user_id` form field (defaults to the first demo account).
+
 | Method | Path | Description |
 |---|---|---|
 | GET | `/health` (alias `/api/v1/health`) | Health check + mock-mode flag |
-| POST | `/api/v1/process-video` | Multipart video upload → `JobResponse` JSON |
+| POST | `/api/v1/process-video` | Video upload → `JobResponse` with showcase cards |
 | POST | `/api/v1/jobs` | Alias of the above |
 | GET | `/api/v1/jobs/{job_id}` | Re-fetch a completed job's stored result |
+| GET | `/api/v1/users` | List unified accounts (1-click switch) |
+| POST | `/api/v1/users` | Create account (`username`, `display_name`, `location`) |
+| GET | `/api/v1/users/{user_id}` | Account details + wallet |
+| GET | `/api/v1/users/{user_id}/dashboard` | Jobs, active/sold listings, purchases |
+| POST | `/api/v1/marketplace/publish` | Publish job items (`user_id`, `job_id`, optional `item_ids` + price/title `overrides`) |
+| GET | `/api/v1/marketplace/listings` | Discovery feed (`q`, `category`, `min_price`, `max_price`, `min_condition`) |
+| GET | `/api/v1/marketplace/{listing_id}` | Authenticity inspection payload |
+| POST | `/api/v1/marketplace/{listing_id}/buy` | Instant buy (`buyer_id`; wallet transfer, marks `sold`) |
 | GET | `/static/jobs/{job_id}/...` | Generated frames, cutouts and showcase images |
-
-Upload field name is `file`. Accepted types: `.mp4`, `.mov`, `.webm`.
-
-Response shape matches `schema.py` at the repo root: `job_id`, `status`,
-`video_url`, `duration_sec`, `transcript`, and `items[]` each with `price`,
-`condition`, `bounding_box` and `assets` URLs (`raw_frame_url`,
-`sam_mask_overlay_url`, `real_cutout_png_url`, `studio_showcase_url`,
-`showcase_with_pricetag_url`).
 
 ## Offline / fallback mode
 
@@ -66,5 +76,7 @@ python tests/generate_sample_and_test.py            # in-process pipeline run
 python tests/generate_sample_and_test.py --url http://localhost:8000
 ```
 
-The script generates a synthetic room video, runs the pipeline, prints the
-JSON response, and asserts every showcase asset exists on disk.
+Phase 1 generates a synthetic room video, runs the pipeline, and asserts
+every showcase asset exists on disk. Phase 2 proves the marketplace loop
+over HTTP: seeded accounts → publish → search/filter → inspect → buy with
+wallet transfer → dashboards, plus double-buy and self-buy rejections.

@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
     static_dir: str = "static"
+    data_dir: str = "data"
     max_upload_mb: int = 200
     frame_window_sec: float = 1.5
     candidate_frames_per_item: int = 3
@@ -48,6 +49,17 @@ class Settings(BaseSettings):
     @property
     def jobs_path(self) -> Path:
         return self.static_path / "jobs"
+
+    @property
+    def data_path(self) -> Path:
+        p = Path(self.data_dir)
+        if not p.is_absolute():
+            p = BASE_DIR / p
+        return p
+
+    @property
+    def db_path(self) -> Path:
+        return self.data_path / "marketplace_db.json"
 
     @property
     def mock_enabled(self) -> bool:

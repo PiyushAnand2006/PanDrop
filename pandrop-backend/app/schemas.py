@@ -73,15 +73,85 @@ class ProcessedItem(BaseModel):
     tags: list[str] = Field(default_factory=list)
     bounding_box: list[int] = Field(default_factory=list)
     assets: ItemAssets
+    is_published: bool = False
+    published_listing_id: str | None = None
 
 
 class JobResponse(BaseModel):
     job_id: str
+    user_id: str = ""
     status: str
     video_url: str
     duration_sec: float
     transcript: str
     items: list[ProcessedItem] = Field(default_factory=list)
+    created_at: str = ""
+
+
+class UserAccount(BaseModel):
+    user_id: str
+    username: str
+    display_name: str
+    avatar_url: str = ""
+    location: str = ""
+    wallet_balance: float = 0.0
+    created_at: str = ""
+
+
+class CreateUserRequest(BaseModel):
+    username: str
+    display_name: str = ""
+    location: str = ""
+
+
+class MarketplaceListing(BaseModel):
+    listing_id: str
+    job_id: str
+    item_id: str
+    seller_id: str
+    seller_name: str
+    seller_username: str
+    seller_avatar: str = ""
+    seller_location: str = ""
+    status: str = "active"
+    buyer_id: str | None = None
+    buyer_name: str | None = None
+    sold_at: str | None = None
+    spoken_name: str
+    seo_title: str
+    category: str
+    price: PriceInfo
+    timestamp_sec: float = 0.0
+    video_url: str = ""
+    condition: ConditionInfo
+    description: str = ""
+    bounding_box: list[int] = Field(default_factory=list)
+    assets: ItemAssets
+    created_at: str = ""
+
+
+class PublishItemOverride(BaseModel):
+    price: float | None = None
+    seo_title: str | None = None
+
+
+class PublishRequest(BaseModel):
+    user_id: str
+    job_id: str
+    item_ids: list[str] | None = None
+    overrides: dict[str, PublishItemOverride] = Field(default_factory=dict)
+
+
+class BuyRequest(BaseModel):
+    buyer_id: str
+
+
+class UserDashboardResponse(BaseModel):
+    user: UserAccount
+    extraction_jobs: list[JobResponse] = Field(default_factory=list)
+    active_listings: list[MarketplaceListing] = Field(default_factory=list)
+    sold_listings: list[MarketplaceListing] = Field(default_factory=list)
+    purchased_listings: list[MarketplaceListing] = Field(default_factory=list)
 
 
 class HealthResponse(BaseModel):

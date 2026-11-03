@@ -3,6 +3,8 @@ __pycache__/
 .venv/
 .env
 pandrop-backend/static/jobs/
+pandrop-backend/static/seed/
+pandrop-backend/data/
 pandrop-backend/tests/sample_room.mp4
 *.log
 

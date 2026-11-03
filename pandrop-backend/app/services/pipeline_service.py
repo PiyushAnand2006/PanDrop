@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 import cv2
@@ -130,8 +131,10 @@ async def _process_item(
     )
 
 
-async def process_video(video_bytes: bytes, filename: str) -> JobResponse:
-    """Run the full pipeline for one uploaded video."""
+async def process_video(
+    video_bytes: bytes, filename: str, user_id: str = ""
+) -> JobResponse:
+    """Run the full pipeline for one uploaded video owned by ``user_id``."""
     media_service.validate_video_file(filename)
     if len(video_bytes) > settings.max_upload_mb * 1024 * 1024:
         raise ValueError(f"Upload exceeds {settings.max_upload_mb} MB limit")
@@ -174,15 +177,21 @@ async def process_video(video_bytes: bytes, filename: str) -> JobResponse:
 
     response = JobResponse(
         job_id=job_id,
+        user_id=user_id,
         status="completed",
         video_url=_static_url(job_id, video_path.name),
         duration_sec=duration,
         transcript=transcript.text,
         items=processed,
+        created_at=datetime.now(timezone.utc).isoformat(),
     )
     (job_dir / "result.json").write_text(
         json.dumps(response.model_dump(), indent=2), encoding="utf-8"
     )
+    if user_id:
+        from app.services import store_service
+
+        store_service.save_job(response)
     return response
 
 
@@ -190,4 +199,28 @@ def load_job_result(job_id: str) -> JobResponse | None:
     path = settings.jobs_path / job_id / "result.json"
     if not path.exists():
         return None
-    return JobResponse(**json.loads(path.read_text(encoding="utf-8")))
+    job = JobResponse(**json.loads(path.read_text(encoding="utf-8")))
+    # Overlay publish flags from the store when available.
+    try:
+        from app.services import store_service
+
+        stored = store_service.get_job(job_id)
+        if stored is not None:
+            if not job.user_id:
+                job = job.model_copy(update={"user_id": stored.user_id})
+            published = {
+                item.item_id: item.published_listing_id
+                for item in stored.items if item.is_published
+            }
+            if published:
+                items = [
+                    item.model_copy(update={
+                        "is_published": True,
+                        "published_listing_id": published[item.item_id],
+                    }) if item.item_id in published else item
+                    for item in job.items
+                ]
+                job = job.model_copy(update={"items": items})
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Store overlay failed for %s: %s", job_id, exc)
+    return job

@@ -1,4 +1,9 @@
-"""End-to-end async orchestration: upload -> transcript -> items -> showcase cards."""
+"""End-to-end async orchestration: upload -> transcript -> items -> showcase cards.
+
+Two-phase per item: first all audits run (frames + Wonder boxes), then all
+boxes are sanitized jointly (degenerate fallback + pairwise de-overlap so no
+cutout contains its neighbour), then segmentation/compositing fans out.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -26,7 +31,7 @@ from app.services.compositor_service import (
     extract_real_object_cutout,
 )
 from app.services.meta_ai_service import MetaAIService
-from app.utils.image_utils import format_price
+from app.utils.image_utils import central_bbox, format_price
 
 logger = logging.getLogger(__name__)
 
@@ -39,20 +44,81 @@ def _static_url(job_id: str, *parts: str) -> str:
     return "/static/jobs/" + job_id + "/" + "/".join(parts)
 
 
-async def _process_item(
+def sanitize_audit_boxes(audits, frame_w: int, frame_h: int) -> list[dict]:
+    """Fix sloppy detector boxes before segmentation (pure function).
+
+    - Degenerate/tiny boxes fall back to a central box (a point-sized box
+      starves grabCut and yields an empty mask).
+    - Overlapping boxes of different items are split along the overlap's
+      longer axis at the midpoint between the two object points, so each
+      cutout keeps its own side instead of its neighbour.
+    """
+    fixed = []
+    for audit in audits:
+        x1, y1, x2, y2 = [int(v) for v in audit.bounding_box]
+        x1, y1 = max(0, x1), max(0, y1)
+        x2, y2 = min(frame_w, x2), min(frame_h, y2)
+        if max(x2 - x1, 0) * max(y2 - y1, 0) < 0.005 * frame_w * frame_h:
+            x1, y1, x2, y2 = central_bbox(frame_w, frame_h)
+            px, py = frame_w // 2, frame_h // 2
+        else:
+            px, py = [int(v) for v in audit.point_coords]
+        fixed.append({"bbox": [x1, y1, x2, y2], "point": [px, py], "audit": audit})
+    for i in range(len(fixed)):
+        for j in range(i + 1, len(fixed)):
+            a, b = fixed[i], fixed[j]
+            ox1 = max(a["bbox"][0], b["bbox"][0])
+            oy1 = max(a["bbox"][1], b["bbox"][1])
+            ox2 = min(a["bbox"][2], b["bbox"][2])
+            oy2 = min(a["bbox"][3], b["bbox"][3])
+            ow, oh = max(ox2 - ox1, 0), max(oy2 - oy1, 0)
+            if ow <= 0 or oh <= 0:
+                continue
+            ia = (a["bbox"][2] - a["bbox"][0]) * (a["bbox"][3] - a["bbox"][1])
+            ib = (b["bbox"][2] - b["bbox"][0]) * (b["bbox"][3] - b["bbox"][1])
+            if ow * oh / max(min(ia, ib), 1) < 0.15:
+                continue
+            if ow >= oh:  # side-by-side: split vertically
+                cut = (a["point"][0] + b["point"][0]) // 2
+                cut = max(ox1 + 1, min(ox2 - 1, cut))
+                if a["point"][0] <= b["point"][0]:
+                    a["bbox"][2] = min(a["bbox"][2], cut)
+                    b["bbox"][0] = max(b["bbox"][0], cut)
+                else:
+                    b["bbox"][2] = min(b["bbox"][2], cut)
+                    a["bbox"][0] = max(a["bbox"][0], cut)
+            else:  # stacked: split horizontally
+                cut = (a["point"][1] + b["point"][1]) // 2
+                cut = max(oy1 + 1, min(oy2 - 1, cut))
+                if a["point"][1] <= b["point"][1]:
+                    a["bbox"][3] = min(a["bbox"][3], cut)
+                    b["bbox"][1] = max(b["bbox"][1], cut)
+                else:
+                    b["bbox"][3] = min(b["bbox"][3], cut)
+                    a["bbox"][1] = max(a["bbox"][1], cut)
+    out = []
+    for f in fixed:
+        x1, y1, x2, y2 = f["bbox"]
+        if x2 - x1 < 8 or y2 - y1 < 8:
+            x1, y1, x2, y2 = central_bbox(frame_w, frame_h)
+            f["point"] = [frame_w // 2, frame_h // 2]
+        f["bbox"] = [x1, y1, x2, y2]
+        out.append(f)
+    return out
+
+
+async def _audit_item(
     item_index: int,
     item,
     video_path: Path,
     job_dir: Path,
-    job_id: str,
     meta: MetaAIService,
-) -> ProcessedItem:
+) -> dict:
+    """Phase 1: candidate frames + Wonder audit for one item."""
     item_id = f"item_{item_index + 1}"
     item_dir = job_dir / item_id
     item_dir.mkdir(parents=True, exist_ok=True)
-    price_formatted = format_price(float(item.asking_price))
 
-    # 1. Candidate frames around the spoken timestamp.
     frame_paths = media_service.extract_candidate_frames(
         video_path,
         float(item.timestamp_sec),
@@ -63,7 +129,6 @@ async def _process_item(
     if not frame_paths:
         raise ValueError(f"No frames could be extracted for {item_id} at {item.timestamp_sec}s")
 
-    # 2. Muse Wonder: best frame + bbox + condition audit.
     audit = await meta.analyze_frames_and_audit_condition(item, frame_paths)
     best_idx = max(0, min(int(audit.best_frame_index), len(frame_paths) - 1))
     best_frame_path = item_dir / "raw_frame.jpg"
@@ -71,15 +136,31 @@ async def _process_item(
     if frame_bgr is None:
         raise ValueError(f"Failed to read best frame for {item_id}")
     cv2.imwrite(str(best_frame_path), frame_bgr)
+    return {
+        "index": item_index,
+        "item": item,
+        "item_id": item_id,
+        "item_dir": item_dir,
+        "audit": audit,
+        "frame_paths": frame_paths,
+        "best_frame_path": best_frame_path,
+        "frame_bgr": frame_bgr,
+    }
 
-    # 3. SAM 3.1: real-object mask.
+
+async def _render_item(prep: dict, job_id: str, meta: MetaAIService) -> ProcessedItem:
+    """Phase 2: segment + composite one item (audit already sanitized)."""
+    item, item_id = prep["item"], prep["item_id"]
+    item_dir, audit = prep["item_dir"], prep["audit"]
+    frame_bgr, best_frame_path = prep["frame_bgr"], prep["best_frame_path"]
+    price_formatted = format_price(float(item.asking_price))
+
     mask_bytes = await meta.segment_real_object(
         best_frame_path, item.spoken_name, list(audit.bounding_box), list(audit.point_coords)
     )
     mask = decode_mask_bytes(mask_bytes)
     (item_dir / "mask.png").write_bytes(mask_bytes)
 
-    # 4. Compositor: HUD overlay + real cutout + studio showcase.
     create_hud_overlay(
         frame_bgr, mask, list(audit.bounding_box),
         item.spoken_name, price_formatted, item_dir / "sam_hud_overlay.png",
@@ -100,7 +181,6 @@ async def _process_item(
         item_dir / "showcase_pricetag.png",
     )
 
-    # 5. Muse Spark listing copy.
     copy = await meta.generate_listing_copy(item, audit)
 
     return ProcessedItem(
@@ -204,6 +284,25 @@ async def process_video(
                 "Vision-only extraction found %d item(s) for job %s",
                 len(items), job_id,
             )
+        if not items:
+            # One more pass with a denser, differently-offset frame set: the
+            # vision model sometimes returns [] on a first pass even when
+            # products are visible.
+            retry_paths, retry_times = _extract_scan_frames(
+                video_path, job_dir / "scan_retry", count=9
+            )
+            if retry_paths:
+                logger.warning(
+                    "Vision pass 1 empty for job %s; retrying with %d frames",
+                    job_id, len(retry_paths),
+                )
+                items = await meta.detect_items_from_frames(
+                    retry_paths, retry_times
+                )
+                logger.info(
+                    "Vision retry found %d item(s) for job %s",
+                    len(items), job_id,
+                )
     if not items:
         # Truly nothing to extract (e.g. no products visible at all) — complete
         # the job anyway so the UI can show its guided empty state instead of
@@ -213,12 +312,34 @@ async def process_video(
             job_id,
         )
 
-    # Fan out: all item workers run concurrently.
-    results = await asyncio.gather(
+    # Phase 1: audit every item (frames + Wonder boxes).
+    preps = await asyncio.gather(
         *(
-            _process_item(i, item, video_path, job_dir, job_id, meta)
+            _audit_item(i, item, video_path, job_dir, meta)
             for i, item in enumerate(items)
         ),
+        return_exceptions=True,
+    )
+    audited = []
+    for i, prep in enumerate(preps):
+        if isinstance(prep, Exception):
+            logger.error("Item %d audit failed: %s", i + 1, prep)
+            raise ValueError(f"Processing failed for item {i + 1}: {prep}") from prep
+        audited.append(prep)
+
+    # Sanitize all boxes jointly (frame dims are identical across one video).
+    if audited:
+        fh, fw = audited[0]["frame_bgr"].shape[:2]
+        fixed = sanitize_audit_boxes([p["audit"] for p in audited], fw, fh)
+        for prep, f in zip(audited, fixed):
+            prep["audit"] = f["audit"].model_copy(update={
+                "bounding_box": f["bbox"],
+                "point_coords": f["point"],
+            })
+
+    # Phase 2: segment + composite every item concurrently.
+    results = await asyncio.gather(
+        *(_render_item(prep, job_id, meta) for prep in audited),
         return_exceptions=True,
     )
     processed: list[ProcessedItem] = []

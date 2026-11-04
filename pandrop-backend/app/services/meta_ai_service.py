@@ -327,6 +327,10 @@ class MetaAIService:
                     "\"estimated_price_usd\": number, \"best_frame_index\": int (0-based), "
                     "\"bbox_0_1000\": [x_min, y_min, x_max, y_max] in 0-1000 coordinates of "
                     "that frame, \"point_0_1000\": [x, y] inside the product}. "
+                    "Each bbox must hug ONLY that product's visible edges tightly "
+                    "- exclude table, walls and every neighbouring product; boxes "
+                    "for different products must not overlap. "
+
                     "If nothing sellable is visible, return []."
                 ),
             }
@@ -369,7 +373,10 @@ class MetaAIService:
                     "reflections, blurred blobs and duplicates of the same object; "
                     "(2) merge candidates that are the same object; (3) correct the name "
                     "to 'colour + material + object type'; (4) fix category, price and the "
-                    "bbox of the frame where the product is sharpest. Return ONLY the final "
+                    "bbox of the frame where the product is sharpest; (5) trim every "
+                    "bbox so it hugs only its product - cut out table, walls and any "
+                    "part of another product, and make sure no two boxes overlap. "
+                    "Return ONLY the final "
                     "JSON array in the same schema as the candidates "
                     "(name, category, estimated_price_usd, best_frame_index, bbox_0_1000, "
                     "point_0_1000). Return [] if nothing survives."
@@ -551,7 +558,20 @@ class MetaAIService:
             raise ValueError(f"Cannot read frame for segmentation: {frame_path}")
         h, w = frame.shape[:2]
         x1, y1, x2, y2 = bbox_to_pixels(list(bbox), w, h)
-        rect = (x1, y1, max(x2 - x1, 2), max(y2 - y1, 2))
+        # A degenerate rect gives grabCut nothing to learn from.
+        if x2 - x1 < 8 or y2 - y1 < 8:
+            from app.utils.image_utils import central_bbox
+
+            x1, y1, x2, y2 = central_bbox(w, h)
+        # Inset the rect: audit boxes hug loose background at their rim,
+        # and everything outside the rect is grabCut's only sure
+        # background. A 5% inset keeps the object while excluding that rim.
+        ix = max(int((x2 - x1) * 0.05), 2)
+        iy = max(int((y2 - y1) * 0.05), 2)
+        rect = (
+            x1 + ix, y1 + iy,
+            max(x2 - x1 - 2 * ix, 8), max(y2 - y1 - 2 * iy, 8),
+        )
         mask_gc = np.zeros((h, w), np.uint8)
         bgd = np.zeros((1, 65), np.float64)
         fgd = np.zeros((1, 65), np.float64)
@@ -566,6 +586,30 @@ class MetaAIService:
         if int((mask > 0).sum()) < 50:
             mask = np.zeros((h, w), np.uint8)
             cv2.rectangle(mask, (x1, y1), (x2, y2), 255, -1)
+        # Prune detached specks (<3% of the main object) and fill pinholes.
+        n, labels, stats, _ = cv2.connectedComponentsWithStats(
+            (mask > 0).astype(np.uint8), 8
+        )
+        if n > 2:
+            biggest = int(stats[1:, cv2.CC_STAT_AREA].max())
+            keep = np.zeros_like(mask)
+            for i in range(1, n):
+                if float(stats[i, cv2.CC_STAT_AREA]) >= 0.03 * biggest:
+                    keep[labels == i] = 255
+            mask = keep
+            inv = (keep == 0).astype(np.uint8)
+            hn, hlabels, hstats, _ = cv2.connectedComponentsWithStats(inv, 4)
+            for i in range(1, hn):
+                x, y = int(hstats[i, cv2.CC_STAT_LEFT]), int(
+                    hstats[i, cv2.CC_STAT_TOP]
+                )
+                touches = x == 0 or y == 0 or x + int(
+                    hstats[i, cv2.CC_STAT_WIDTH]
+                ) >= w or y + int(hstats[i, cv2.CC_STAT_HEIGHT]) >= h
+                if not touches and float(
+                    hstats[i, cv2.CC_STAT_AREA]
+                ) < 0.02 * (x2 - x1) * (y2 - y1):
+                    mask[hlabels == i] = 255
         return mask
 
     # ------------------------------------------------------------- Muse Image

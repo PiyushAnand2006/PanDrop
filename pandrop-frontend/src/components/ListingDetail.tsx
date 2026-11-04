@@ -6,10 +6,11 @@ import {
   MapPin,
   ShieldCheck,
   ShoppingCart,
+  Trash2,
   X,
 } from "lucide-react";
 import type { AssetStageKey, MarketplaceListing } from "../types/pandrop";
-import { buyListing } from "../lib/api";
+import { buyListing, deleteListing } from "../lib/api";
 import AssetStageViewer from "./AssetStageViewer";
 import { PriceTag } from "./atoms";
 
@@ -18,17 +19,22 @@ export default function ListingDetail({
   currentUserId,
   onClose,
   onPurchased,
+  onDeleted,
 }: {
   listing: MarketplaceListing;
   currentUserId: string;
   onClose: () => void;
   /** Called with the updated listing after a successful purchase. */
   onPurchased: (updated: MarketplaceListing) => void;
+  /** Called with the listing id after the seller deletes it. */
+  onDeleted: (listingId: string) => void;
 }) {
   const [stage, setStage] = useState<AssetStageKey>("studio");
   const [buying, setBuying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [bought, setBought] = useState<MarketplaceListing | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -41,6 +47,25 @@ export default function ListingDetail({
   const view = bought ?? listing;
   const isOwn = view.seller_id === currentUserId;
   const sold = view.status === "sold";
+
+  const handleDeleteClick = async () => {
+    if (!confirmingDelete) {
+      setConfirmingDelete(true);
+      setError(null);
+      return;
+    }
+    setDeleting(true);
+    setError(null);
+    try {
+      await deleteListing(view.listing_id, currentUserId);
+      onDeleted(view.listing_id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setConfirmingDelete(false);
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const handleBuy = async () => {
     setBuying(true);
@@ -141,8 +166,23 @@ export default function ListingDetail({
                   {view.buyer_name ? `Sold to ${view.buyer_name}` : "Sold"}
                 </span>
               ) : isOwn ? (
-                <span className="inline-flex items-center gap-1.5 rounded-xl border border-white/12 bg-white/[0.05] px-4 py-2.5 font-display text-[13.5px] font-semibold text-mute">
-                  Your listing — waiting for a buyer
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="inline-flex items-center gap-1.5 rounded-xl border border-white/12 bg-white/[0.05] px-4 py-2.5 font-display text-[13.5px] font-semibold text-mute">
+                    Your listing — waiting for a buyer
+                  </span>
+                  <button
+                    onClick={handleDeleteClick}
+                    disabled={deleting}
+                    title={confirmingDelete ? "Click again to confirm removal" : "Remove this listing"}
+                    className={`inline-flex cursor-pointer items-center gap-1.5 rounded-xl border px-4 py-2.5 font-display text-[13.5px] font-semibold transition disabled:cursor-wait disabled:opacity-70 ${
+                      confirmingDelete
+                        ? "border-red-400/60 bg-red-500/[0.14] text-red-200"
+                        : "border-white/12 bg-white/[0.05] text-mute hover:border-red-400/50 hover:text-red-200"
+                    }`}
+                  >
+                    <Trash2 size={15} />
+                    {deleting ? "Removing…" : confirmingDelete ? "Confirm remove" : "Remove"}
+                  </button>
                 </span>
               ) : (
                 <button

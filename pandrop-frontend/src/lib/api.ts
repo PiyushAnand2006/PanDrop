@@ -277,6 +277,21 @@ export async function buyListing(
   return (await res.json()) as MarketplaceListing;
 }
 
+/**
+ * Delete your own active listing. The backend rejects deleting sold
+ * listings or anyone else's. Throws ApiError with the backend detail.
+ */
+export async function deleteListing(
+  listingId: string,
+  userId: string,
+): Promise<void> {
+  const res = await fetch(
+    `${await base()}/api/v1/marketplace/${encodeURIComponent(listingId)}?user_id=${encodeURIComponent(userId)}`,
+    { method: "DELETE" },
+  );
+  if (!res.ok) throw await readError(res, "Could not delete the listing");
+}
+
 /** Startup probe used by the App shell to reflect mock/live mode in the UI. */
 export async function probeBackend(): Promise<{
   base: string;

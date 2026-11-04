@@ -145,6 +145,10 @@ export default function App() {
             setOpenListing(updated);
             handlePurchased();
           }}
+          onDeleted={() => {
+            setOpenListing(null);
+            setWalletVersion((v) => v + 1);
+          }}
         />
       )}
 

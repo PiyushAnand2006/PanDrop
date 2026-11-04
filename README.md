@@ -11,11 +11,9 @@
 
 ## 🎬 Demo Video
 
-> **⬇️ DROP YOUR DEMO VIDEO HERE**
->
-> Drag & drop your recorded demo as `docs/demo/demo.mp4` (or `.webm`) — it embeds automatically below once committed. GitHub renders `<video>` tags for mp4/webm files in-repo.
+https://github.com/user-attachments/assets/632db0cd-a933-4d97-99c5-c7ecf1949410
 
-<!-- Replace the src below with your actual video path, e.g. docs/demo/demo.mp4 -->
+
 <p align="center">
   <video src="docs/demo/demo.mp4" controls muted width="860" poster="docs/screenshots/studio-extraction.png">
     Your browser does not support the video tag.

@@ -15,3 +15,7 @@ dist/
 
 # local tooling state
 .mimosa/
+
+# submission prompt docs (kept local, not published)
+master_backend_prompt.md
+master_frontend_prompt.md

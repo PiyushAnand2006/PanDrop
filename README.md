@@ -4,7 +4,7 @@
 > Drop a video, talk about your products — Meta's models segment them, audit them, photograph them, and list them.
 
 <p align="center">
-  <img src="docs/screenshots/discover.png" alt="PanDrop Discover & Search feed" width="900"/>
+  <img src="docs/screenshots/thumbnail-alt-glasses.png" alt="PanDrop — Point. Talk. Sold. Raw clip in, AI listing out" width="900"/>
 </p>
 
 ---
@@ -34,9 +34,9 @@ https://github.com/user-attachments/assets/632db0cd-a933-4d97-99c5-c7ecf1949410
 |---|---|
 | ![Listing inspection with Buy now](docs/screenshots/listing-inspection.png) | ![Account hub with wallet and listings](docs/screenshots/account-hub.png) |
 
-| Discover & Search — live marketplace feed |
+| Dashboard — live marketplace feed |
 |---|
-| ![Discover feed](docs/screenshots/discover.png) |
+| ![Discover feed dashboard](docs/screenshots/discover.png) |
 
 ---
 

@@ -236,6 +236,7 @@ class MetaAIService:
             try:
                 prompt = (
                     "Extract every item the speaker wants to sell as JSON. "
+                    "All output text must be in English. "
                     "Return ONLY a JSON array. Each element: "
                     '{"spoken_name": str, "asking_price": float, '
                     '"spoken_condition": str, "timestamp_sec": float, "category": str}. '
@@ -322,7 +323,7 @@ class MetaAIService:
                     "Rules: describe each product by its colour + material + object type; "
                     "do NOT list the same object twice even if it appears in several "
                     "frames; do NOT invent products that are not clearly visible; ignore "
-                    "people, walls, tables and background decor. Return ONLY a JSON array, "
+                    "people, walls, tables and background decor. All names and categories must be in English. Return ONLY a JSON array, "
                     "one element per product: {\"name\": str, \"category\": str, "
                     "\"estimated_price_usd\": number, \"best_frame_index\": int (0-based), "
                     "\"bbox_0_1000\": [x_min, y_min, x_max, y_max] in 0-1000 coordinates of "
@@ -379,7 +380,7 @@ class MetaAIService:
                     "Return ONLY the final "
                     "JSON array in the same schema as the candidates "
                     "(name, category, estimated_price_usd, best_frame_index, bbox_0_1000, "
-                    "point_0_1000). Return [] if nothing survives."
+                    "point_0_1000). All names and categories must be in English. Return [] if nothing survives."
                 ),
             }
         ]
@@ -434,7 +435,7 @@ class MetaAIService:
                             '"bounding_box": [x_min,y_min,x_max,y_max] in 0-1000 coords, '
                             '"point_coords": [x,y] in 0-1000 coords, '
                             '"ai_condition_score": float 1-10, '
-                            '"ai_badge_text": str, "ai_visual_notes": str}. '
+                            '"ai_badge_text": str, "ai_visual_notes": str}. Write ai_visual_notes and ai_badge_text in English. '
                             "Pick the sharpest frame showing the item best and audit its real visual condition."
                         ),
                     }
@@ -655,7 +656,7 @@ class MetaAIService:
         if client is not None:
             try:
                 prompt = (
-                    "Write e-commerce listing copy. Return ONLY JSON: "
+                    "Write e-commerce listing copy in English. Return ONLY JSON: "
                     '{"seo_title": str, "description": str, "tags": [str]}.\n'
                     f"Item: {item.spoken_name}\nCategory: {item.category}\n"
                     f"Asking price: ${item.asking_price}\n"

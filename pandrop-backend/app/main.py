@@ -188,3 +188,16 @@ async def buy_listing(listing_id: str, body: BuyRequest) -> MarketplaceListing:
         return store_service.buy_listing(listing_id, body.buyer_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.delete(
+    "/api/v1/marketplace/{listing_id}",
+    tags=["marketplace"],
+)
+async def delete_listing(listing_id: str, user_id: str) -> dict:
+    """Delete your own active listing (sold items are kept as history)."""
+    try:
+        store_service.delete_listing(listing_id, user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"deleted": listing_id}

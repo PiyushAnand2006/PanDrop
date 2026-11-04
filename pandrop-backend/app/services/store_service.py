@@ -433,6 +433,32 @@ def get_listing(listing_id: str) -> MarketplaceListing | None:
         return MarketplaceListing(**record) if record else None
 
 
+def delete_listing(listing_id: str, user_id: str) -> None:
+    """Remove an *active* listing posted by ``user_id``.
+
+    Sold listings are order history and cannot be deleted. The extraction
+    job's item is unflagged so it can be re-published; generated image
+    files stay on disk because the job still references them.
+    """
+    with _lock:
+        data = _load_db()
+        record = data["listings"].get(listing_id)
+        if record is None:
+            raise ValueError(f"Unknown listing: {listing_id}")
+        if record.get("seller_id") != user_id:
+            raise ValueError("Only the seller can delete this listing")
+        if record.get("status") != "active":
+            raise ValueError("Sold listings cannot be deleted")
+        del data["listings"][listing_id]
+        job = data["jobs"].get(record.get("job_id", ""))
+        if job:
+            for item in job.get("items", []):
+                if item.get("item_id") == record.get("item_id"):
+                    item["is_published"] = False
+                    item["published_listing_id"] = None
+        _write_db(data)
+
+
 def buy_listing(listing_id: str, buyer_id: str) -> MarketplaceListing:
     with _lock:
         data = _load_db()

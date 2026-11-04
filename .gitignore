@@ -19,3 +19,6 @@ dist/
 # submission prompt docs (kept local, not published)
 master_backend_prompt.md
 master_frontend_prompt.md
+
+# raw source clips at the repo root (docs/demo/demo.mp4 stays tracked)
+/*.mp4
